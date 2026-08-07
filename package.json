@@ -1,0 +1,65 @@
+{
+  "name": "@agentage/observability",
+  "version": "0.1.0",
+  "description": "Shared observability kit for agentage services: OTLP trace bootstrap (node --import), pino logger preset with trace correlation, and one-call error capture.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentage/observability.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./bootstrap": {
+      "types": "./dist/bootstrap.d.ts",
+      "import": "./dist/bootstrap.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "verify": "npm run type-check && npm run lint && npm run format:check && npm run test && npm run build && npm run smoke:dist",
+    "prepublishOnly": "npm run verify",
+    "smoke:dist": "node --input-type=module -e \"const k = await import('./dist/index.js'); if (typeof k.resolveTracingConfig !== 'function' || typeof k.createLogger !== 'function' || typeof k.captureError !== 'function') process.exit(1); await import('./dist/bootstrap.js'); console.log('dist smoke ok');\""
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
+    "@opentelemetry/instrumentation": "^0.221.0",
+    "@opentelemetry/resources": "2.10.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.4",
+    "@typescript-eslint/parser": "^8.46.4",
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
