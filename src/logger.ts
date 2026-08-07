@@ -1,4 +1,4 @@
-import { pino, type Logger, type DestinationStream } from 'pino';
+import { pino, destination, type Logger, type DestinationStream } from 'pino';
 import { trace, isSpanContextValid } from '@opentelemetry/api';
 
 export type { Logger };
@@ -8,14 +8,17 @@ export interface LoggerOptions {
   service: string;
   /** Default: LOG_LEVEL env, then 'info'. */
   level?: string;
-  /** Test seam; production always writes JSON to stdout for the log agent. */
+  /** 'stderr' for stdio MCP servers - stdout there IS the JSON-RPC channel. */
+  stream?: 'stdout' | 'stderr';
+  /** Test seam; production writes to the selected stream for the log agent. */
   destination?: DestinationStream;
 }
 
 /**
- * JSON logger to stdout - the estate log agent tails container output, so no
- * in-process shipping. Every line carries `service`, and when a span is active
- * `trace_id`/`span_id` are injected so SigNoz links the log to its trace.
+ * JSON logger to stdout (or stderr for stdio transports) - the estate log agent
+ * tails container output, so no in-process shipping. Every line carries
+ * `service`, and when a span is active `trace_id`/`span_id` are injected so
+ * SigNoz links the log to its trace.
  */
 export function createLogger(opts: LoggerOptions): Logger {
   const logger = pino(
@@ -27,7 +30,7 @@ export function createLogger(opts: LoggerOptions): Logger {
         return ctx && isSpanContextValid(ctx) ? { trace_id: ctx.traceId, span_id: ctx.spanId } : {};
       },
     },
-    opts.destination
+    opts.destination ?? (opts.stream === 'stderr' ? destination(2) : undefined)
   );
   return logger;
 }

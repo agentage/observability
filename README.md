@@ -6,7 +6,8 @@ The shared observability kit for agentage services. One package, three things:
   HTTP/Express/fetch for pure-ESM services and Next.js standalone servers.
 - **Logs** - a pino preset: JSON to stdout with a standard shape (`service`,
   `level`, `msg`, `err`), plus `trace_id`/`span_id` injected from the active
-  span so every log line links to its trace in SigNoz.
+  span so every log line links to its trace in SigNoz. `stream: 'stderr'` for
+  stdio MCP servers (stdout there is the JSON-RPC channel).
 - **Errors** - `captureError(log, err, ctx)`: one call writes the structured
   error log AND flags the active span (recordException + ERROR status).
 

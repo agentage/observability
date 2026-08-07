@@ -64,3 +64,20 @@ describe('createLogger', () => {
     expect(lines[0].msg).toBe('kept');
   });
 });
+
+describe('stdio safety', () => {
+  it('stream stderr writes to fd 2, keeping stdout clean for JSON-RPC', async () => {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const run = promisify(execFile);
+    const { stdout, stderr } = await run(process.execPath, [
+      '--input-type=module',
+      '-e',
+      `const { createLogger } = await import('./dist/index.js');
+       createLogger({ service: 'stdio-mcp', stream: 'stderr' }).info('to stderr');
+       console.log('{"jsonrpc":"2.0"}');`,
+    ]);
+    expect(stdout.trim()).toBe('{"jsonrpc":"2.0"}');
+    expect(JSON.parse(stderr).msg).toBe('to stderr');
+  });
+});
