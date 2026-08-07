@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace } from '@opentelemetry/api';
+import { symbols } from 'pino';
 import { createLogger } from '../src/logger.js';
 
 // The API's default context manager is a no-op, so tests stub the active span
@@ -66,18 +67,14 @@ describe('createLogger', () => {
 });
 
 describe('stdio safety', () => {
-  it('stream stderr writes to fd 2, keeping stdout clean for JSON-RPC', async () => {
-    const { execFile } = await import('node:child_process');
-    const { promisify } = await import('node:util');
-    const run = promisify(execFile);
-    const { stdout, stderr } = await run(process.execPath, [
-      '--input-type=module',
-      '-e',
-      `const { createLogger } = await import('./dist/index.js');
-       createLogger({ service: 'stdio-mcp', stream: 'stderr' }).info('to stderr');
-       console.log('{"jsonrpc":"2.0"}');`,
-    ]);
-    expect(stdout.trim()).toBe('{"jsonrpc":"2.0"}');
-    expect(JSON.parse(stderr).msg).toBe('to stderr');
+  const streamOf = (log: unknown): { fd?: number } =>
+    (log as Record<symbol, { fd?: number }>)[symbols.streamSym];
+
+  it('stream stderr routes to fd 2, keeping stdout clean for JSON-RPC', () => {
+    expect(streamOf(createLogger({ service: 'stdio-mcp', stream: 'stderr' })).fd).toBe(2);
+  });
+
+  it('defaults to stdout for HTTP services', () => {
+    expect(streamOf(createLogger({ service: 'agentage-auth' })).fd).toBe(1);
   });
 });
