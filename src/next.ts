@@ -15,6 +15,9 @@ export function register(): void {
   if (!config) return;
   registerOTel({
     serviceName: config.serviceName,
+    // Image provenance (COMMIT_SHA) - the Node bootstrap sets this via the
+    // resource; the Next path must pass it explicitly.
+    attributes: config.serviceVersion ? { 'service.version': config.serviceVersion } : undefined,
     // Drops health-probe traces + Next machinery spans; wraps the env ratio.
     traceSampler: samplerFromEnv(process.env),
     // 'auto' keeps the default export processor; the normalizer rewrites

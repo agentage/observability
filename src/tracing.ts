@@ -1,6 +1,11 @@
 import { register } from 'node:module';
+import type { Instrumentation } from '@opentelemetry/instrumentation';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
+import { AmqplibInstrumentation } from '@opentelemetry/instrumentation-amqplib';
 import { ExpressInstrumentation, ExpressLayerType } from '@opentelemetry/instrumentation-express';
+import { MongoDBInstrumentation } from '@opentelemetry/instrumentation-mongodb';
+import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
+import { RedisInstrumentation } from '@opentelemetry/instrumentation-redis';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -30,17 +35,17 @@ function configureDiagnostics(level: string | undefined): void {
   }
 }
 
-// Minimal by design (owner directive: "just http requests, response code and
-// timings"): ONE server span per request + client spans for outbound calls.
+// Lean by design: ONE server span per request, outbound calls, datastore calls -
+// and nothing else (owner directive; amended 2026-08-08 to keep db/queue spans).
 // - http: server + https-client spans, health probes never recorded
 // - express: creates ZERO spans (every layer type ignored) - it exists solely
 //   for route attribution: rpcMetadata.route is set BEFORE the ignore check
 //   (verified in source), so server spans still get `{method} {route}` names
 // - undici: outbound fetch() spans + W3C propagation to the next service
-// Depth beyond that is intentional: use withSpan() in app code.
-function instrumentations(): (
-  HttpInstrumentation | ExpressInstrumentation | UndiciInstrumentation
-)[] {
+// - mongodb/pg/redis/amqplib: the estate's datastores + queues; inert when the
+//   library is absent
+// Further depth is intentional: use withSpan() in app code.
+function instrumentations(): Instrumentation[] {
   return [
     new HttpInstrumentation({
       ignoreIncomingRequestHook: (req) => isHealthProbePath(req.url),
@@ -53,6 +58,10 @@ function instrumentations(): (
       ],
     }),
     new UndiciInstrumentation(),
+    new MongoDBInstrumentation(),
+    new PgInstrumentation(),
+    new RedisInstrumentation(),
+    new AmqplibInstrumentation(),
   ];
 }
 
