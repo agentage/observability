@@ -88,6 +88,23 @@ Standard `OTEL_*` env, read by the SDK itself:
 | `COMMIT_SHA`                                   | Image build arg, surfaced as `service.version`.                   |
 | `LOG_LEVEL`                                    | pino level for `createLogger` (default `info`).                   |
 
+## What gets traced (minimal by design)
+
+Node services emit exactly: one SERVER span per request (`{method} {route}`,
+status code, duration; scanner probes on unmatched routes = `{method}
+(unmatched)`; health probes never recorded) plus CLIENT spans for outbound
+http/fetch calls (which also carry W3C propagation to the next service).
+No Express layer spans, no fs/dns/db auto-spans. Next apps mirror this via the
+`/next` entry (noise sampler + span-name normalizer).
+
+Depth is intentional, not automatic:
+
+```ts
+import { withSpan } from '@agentage/observability';
+
+await withSpan('store.read', () => store.read(id), { memory: id });
+```
+
 ## Why the loader hook
 
 `bootstrap.js` calls `module.register()` with

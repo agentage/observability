@@ -1,10 +1,15 @@
 import { register } from 'node:module';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { ExpressInstrumentation, ExpressLayerType } from '@opentelemetry/instrumentation-express';
+import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
+import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { defaultResource, resourceFromAttributes } from '@opentelemetry/resources';
 import { NodeSDK } from '@opentelemetry/sdk-node';
+import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
 import { isHealthProbePath, type TracingConfig } from './config.js';
+import { FetchSpanNameProcessor } from './span-names.js';
 
 const DIAG_LEVELS: Record<string, DiagLogLevel> = {
   none: DiagLogLevel.NONE,
@@ -25,32 +30,36 @@ function configureDiagnostics(level: string | undefined): void {
   }
 }
 
-// Metrics belong to the host otel-agent, and fs/net/dns spans bury the request
-// traces they hang off (git shells out constantly in memory-mcp and sync).
-const DISABLED_INSTRUMENTATIONS = [
-  '@opentelemetry/instrumentation-fs',
-  '@opentelemetry/instrumentation-net',
-  '@opentelemetry/instrumentation-dns',
-  '@opentelemetry/instrumentation-host-metrics',
-  '@opentelemetry/instrumentation-runtime-node',
-] as const;
-
-function autoInstrumentations(): ReturnType<typeof getNodeAutoInstrumentations> {
-  const disabled = Object.fromEntries(
-    DISABLED_INSTRUMENTATIONS.map((name) => [name, { enabled: false }])
-  );
-  return getNodeAutoInstrumentations({
-    ...disabled,
-    '@opentelemetry/instrumentation-http': {
+// Minimal by design (owner directive: "just http requests, response code and
+// timings"): ONE server span per request + client spans for outbound calls.
+// - http: server + https-client spans, health probes never recorded
+// - express: creates ZERO spans (every layer type ignored) - it exists solely
+//   for route attribution: rpcMetadata.route is set BEFORE the ignore check
+//   (verified in source), so server spans still get `{method} {route}` names
+// - undici: outbound fetch() spans + W3C propagation to the next service
+// Depth beyond that is intentional: use withSpan() in app code.
+function instrumentations(): (
+  HttpInstrumentation | ExpressInstrumentation | UndiciInstrumentation
+)[] {
+  return [
+    new HttpInstrumentation({
       ignoreIncomingRequestHook: (req) => isHealthProbePath(req.url),
-    },
-  });
+    }),
+    new ExpressInstrumentation({
+      ignoreLayersType: [
+        ExpressLayerType.MIDDLEWARE,
+        ExpressLayerType.ROUTER,
+        ExpressLayerType.REQUEST_HANDLER,
+      ],
+    }),
+    new UndiciInstrumentation(),
+  ];
 }
 
 /**
  * Start the tracer. Endpoint, headers and sampler all come from the standard
- * OTEL_* env the SDK reads itself; this only wires the ESM loader hook, the
- * instrumentation set and a bounded flush on shutdown.
+ * OTEL_* env; this wires the ESM loader hook, the minimal instrumentation set,
+ * the explicit OTLP pipeline and a bounded flush on shutdown.
  */
 export function startTracing(config: TracingConfig): void {
   configureDiagnostics(process.env.OTEL_LOG_LEVEL);
@@ -67,7 +76,13 @@ export function startTracing(config: TracingConfig): void {
           resourceFromAttributes({ [ATTR_SERVICE_VERSION]: config.serviceVersion })
         )
       : defaultResource(),
-    instrumentations: [autoInstrumentations()],
+    instrumentations: instrumentations(),
+    // Explicit pipeline (NodeSDK skips its env autodetection when spanProcessors
+    // is set): the exporter still reads OTEL_EXPORTER_OTLP_ENDPOINT/HEADERS
+    // itself. The name processor starts unmatched-route server spans as
+    // `{method} (unmatched)`; matched routes get renamed at response end from
+    // rpcMetadata, so only scanner probes keep the label.
+    spanProcessors: [new FetchSpanNameProcessor(), new BatchSpanProcessor(new OTLPTraceExporter())],
   });
 
   sdk.start();
