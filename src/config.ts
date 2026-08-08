@@ -29,7 +29,7 @@ export function resolveTracingConfig(env: NodeJS.ProcessEnv): TracingConfig | nu
 
 // Health/readiness probes fire every 15s per task and carry no signal, so the
 // tracer drops their inbound spans.
-const HEALTH_PATHS = new Set(['/health', '/api/health', '/status']);
+const HEALTH_PATHS = new Set(['/health', '/api/health', '/status', '/hc']);
 
 export function isHealthProbePath(url: string | undefined): boolean {
   return HEALTH_PATHS.has((url ?? '').split('?')[0]);

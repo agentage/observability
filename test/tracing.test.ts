@@ -6,6 +6,7 @@ describe('isHealthProbePath', () => {
     expect(isHealthProbePath('/health')).toBe(true);
     expect(isHealthProbePath('/api/health')).toBe(true);
     expect(isHealthProbePath('/status')).toBe(true);
+    expect(isHealthProbePath('/hc')).toBe(true);
     expect(isHealthProbePath('/health?probe=1')).toBe(true);
   });
 
