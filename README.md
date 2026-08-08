@@ -25,8 +25,14 @@ exactly as an uninstrumented one. Logging works regardless.
    ```
 
    `--import`, never `--require`: CJS preloads cannot patch `import`ed modules,
-   so Express/HTTP spans silently vanish. For Next.js standalone use
-   `NODE_OPTIONS=--import=@agentage/observability/bootstrap`.
+   so Express/HTTP spans silently vanish.
+
+   **Next.js apps** skip the preload: add `@vercel/otel` and a one-line
+   `src/instrumentation.ts` instead -
+
+   ```ts
+   export { register } from '@agentage/observability/next';
+   ```
 
 3. Compose/env: `OTEL_SERVICE_NAME=<name from the estate naming registry>`
 4. Compose/env: sampler + disabled signals (metrics come from the host agent,
