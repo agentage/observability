@@ -46,6 +46,13 @@ export class FetchSpanNameProcessor implements SpanProcessor {
       span.updateName(normalized);
       return;
     }
+    // Fold RSC payload fetches into their route's row (`RSC GET /x` -> `GET /x`);
+    // the navigation type stays queryable via the next.rsc attribute.
+    if (span.name.startsWith('RSC ')) {
+      span.setAttribute('next.rsc', true);
+      span.updateName(span.name.slice(4));
+      return;
+    }
     // Next only names server spans `{method} {route}` when a route matched; a
     // bare method = scanner probes on unmatched paths. One labeled row beats a
     // cryptic `GET` (dropping them would hide a real routing regression).

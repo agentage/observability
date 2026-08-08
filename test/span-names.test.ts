@@ -67,3 +67,15 @@ describe('unmatched-route rename', () => {
     expect(updateName).not.toHaveBeenCalled();
   });
 });
+
+describe('RSC fold', () => {
+  it('folds RSC spans into the route row and stamps next.rsc', () => {
+    const p = new FetchSpanNameProcessor();
+    const updateName = vi.fn();
+    const setAttribute = vi.fn();
+    const span = { name: 'RSC GET /browse', updateName, setAttribute } as unknown as Span;
+    p.onStart(span, {} as Context);
+    expect(setAttribute).toHaveBeenCalledWith('next.rsc', true);
+    expect(updateName).toHaveBeenCalledWith('GET /browse');
+  });
+});
