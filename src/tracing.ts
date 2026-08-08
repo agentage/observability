@@ -35,11 +35,23 @@ const DISABLED_INSTRUMENTATIONS = [
   '@opentelemetry/instrumentation-runtime-node',
 ] as const;
 
+// Health/readiness probes fire every 15s per task and carry no signal.
+const HEALTH_PATHS = new Set(['/health', '/api/health', '/status']);
+
+export function isHealthProbePath(url: string | undefined): boolean {
+  return HEALTH_PATHS.has((url ?? '').split('?')[0]);
+}
+
 function autoInstrumentations(): ReturnType<typeof getNodeAutoInstrumentations> {
   const disabled = Object.fromEntries(
     DISABLED_INSTRUMENTATIONS.map((name) => [name, { enabled: false }])
   );
-  return getNodeAutoInstrumentations(disabled);
+  return getNodeAutoInstrumentations({
+    ...disabled,
+    '@opentelemetry/instrumentation-http': {
+      ignoreIncomingRequestHook: (req) => isHealthProbePath(req.url),
+    },
+  });
 }
 
 /**
