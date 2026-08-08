@@ -20,7 +20,14 @@ describe('next register', () => {
     vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://172.31.0.1:4318');
     vi.stubEnv('OTEL_SERVICE_NAME', 'agentage-dashboard');
     register();
-    expect(registerOTel).toHaveBeenCalledWith({ serviceName: 'agentage-dashboard' });
+    expect(registerOTel).toHaveBeenCalledOnce();
+    const arg = registerOTel.mock.calls[0][0] as {
+      serviceName: string;
+      spanProcessors: unknown[];
+    };
+    expect(arg.serviceName).toBe('agentage-dashboard');
+    expect(arg.spanProcessors[0]).toBe('auto');
+    expect(arg.spanProcessors).toHaveLength(2);
   });
 
   it('respects OTEL_SDK_DISABLED', () => {

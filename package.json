@@ -1,6 +1,6 @@
 {
   "name": "@agentage/observability",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Shared observability kit for agentage services: OTLP trace bootstrap (node --import), pino logger preset with trace correlation, and one-call error capture.",
   "type": "module",
   "license": "MIT",
@@ -51,6 +51,7 @@
     "@opentelemetry/instrumentation": "^0.221.0",
     "@opentelemetry/resources": "2.10.0",
     "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/sdk-trace-base": "^2.2.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "pino": "^10.3.1"
   },

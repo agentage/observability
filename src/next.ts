@@ -1,5 +1,6 @@
 import { registerOTel } from '@vercel/otel';
 import { resolveTracingConfig } from './config.js';
+import { FetchSpanNameProcessor } from './span-names.js';
 
 /**
  * Next.js entry: re-export from `instrumentation.ts` -
@@ -11,5 +12,10 @@ import { resolveTracingConfig } from './config.js';
 export function register(): void {
   const config = resolveTracingConfig(process.env);
   if (!config) return;
-  registerOTel({ serviceName: config.serviceName });
+  registerOTel({
+    serviceName: config.serviceName,
+    // 'auto' keeps the default export processor; the normalizer rewrites
+    // fetch-client span names to `{method} {route}` for SigNoz grouping.
+    spanProcessors: ['auto', new FetchSpanNameProcessor()],
+  });
 }
