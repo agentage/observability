@@ -52,3 +52,18 @@ describe('FetchSpanNameProcessor', () => {
     expect(updateName).not.toHaveBeenCalled();
   });
 });
+
+describe('unmatched-route rename', () => {
+  it('renames bare-method SERVER spans, leaves others', async () => {
+    const { SpanKind } = await import('@opentelemetry/api');
+    const p = new FetchSpanNameProcessor();
+    const updateName = vi.fn();
+    const mk = (name: string, kind: number) => ({ name, kind, updateName }) as unknown as Span;
+    p.onStart(mk('GET', SpanKind.SERVER), {} as Context);
+    expect(updateName).toHaveBeenCalledWith('GET (unmatched)');
+    updateName.mockClear();
+    p.onStart(mk('GET', SpanKind.CLIENT), {} as Context);
+    p.onStart(mk('GET /docs', SpanKind.SERVER), {} as Context);
+    expect(updateName).not.toHaveBeenCalled();
+  });
+});

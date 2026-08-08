@@ -1,4 +1,4 @@
-import type { Context } from '@opentelemetry/api';
+import { SpanKind, type Context } from '@opentelemetry/api';
 import type { Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 
 // Param-shaped path segments: numeric ids, hex ids (mongo/sha), uuids.
@@ -42,7 +42,16 @@ export function normalizeFetchSpanName(name: string): string | null {
 export class FetchSpanNameProcessor implements SpanProcessor {
   onStart(span: Span, _parentContext: Context): void {
     const normalized = normalizeFetchSpanName(span.name);
-    if (normalized) span.updateName(normalized);
+    if (normalized) {
+      span.updateName(normalized);
+      return;
+    }
+    // Next only names server spans `{method} {route}` when a route matched; a
+    // bare method = scanner probes on unmatched paths. One labeled row beats a
+    // cryptic `GET` (dropping them would hide a real routing regression).
+    if (span.kind === SpanKind.SERVER && /^[A-Z]+$/.test(span.name)) {
+      span.updateName(`${span.name} (unmatched)`);
+    }
   }
 
   onEnd(): void {}

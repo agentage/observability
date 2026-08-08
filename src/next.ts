@@ -1,6 +1,7 @@
 import { registerOTel } from '@vercel/otel';
 import { resolveTracingConfig } from './config.js';
 import { FetchSpanNameProcessor } from './span-names.js';
+import { samplerFromEnv } from './noise-sampler.js';
 
 /**
  * Next.js entry: re-export from `instrumentation.ts` -
@@ -14,6 +15,8 @@ export function register(): void {
   if (!config) return;
   registerOTel({
     serviceName: config.serviceName,
+    // Drops health-probe traces + Next machinery spans; wraps the env ratio.
+    traceSampler: samplerFromEnv(process.env),
     // 'auto' keeps the default export processor; the normalizer rewrites
     // fetch-client span names to `{method} {route}` for SigNoz grouping.
     spanProcessors: ['auto', new FetchSpanNameProcessor()],
