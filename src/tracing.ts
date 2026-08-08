@@ -4,7 +4,7 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { defaultResource, resourceFromAttributes } from '@opentelemetry/resources';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
-import type { TracingConfig } from './config.js';
+import { isHealthProbePath, type TracingConfig } from './config.js';
 
 const DIAG_LEVELS: Record<string, DiagLogLevel> = {
   none: DiagLogLevel.NONE,
@@ -34,13 +34,6 @@ const DISABLED_INSTRUMENTATIONS = [
   '@opentelemetry/instrumentation-host-metrics',
   '@opentelemetry/instrumentation-runtime-node',
 ] as const;
-
-// Health/readiness probes fire every 15s per task and carry no signal.
-const HEALTH_PATHS = new Set(['/health', '/api/health', '/status']);
-
-export function isHealthProbePath(url: string | undefined): boolean {
-  return HEALTH_PATHS.has((url ?? '').split('?')[0]);
-}
 
 function autoInstrumentations(): ReturnType<typeof getNodeAutoInstrumentations> {
   const disabled = Object.fromEntries(

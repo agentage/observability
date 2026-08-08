@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isHealthProbePath } from '../src/tracing.js';
+import { isHealthProbePath } from '../src/config.js';
 
 describe('isHealthProbePath', () => {
   it('matches the estate health endpoints, query included', () => {
