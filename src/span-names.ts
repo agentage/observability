@@ -60,10 +60,21 @@ export class FetchSpanNameProcessor implements SpanProcessor {
   // the export processor, so mutating here lands ahead of serialization; the
   // navigation type stays queryable via the next.rsc attribute.
   onEnd(span: Span): void {
-    const m = span as unknown as { name: string; attributes: Record<string, unknown> };
+    const m = span as unknown as {
+      name: string;
+      attributes: Record<string, unknown>;
+      kind: SpanKind;
+    };
     if (m.name.startsWith('RSC ')) {
       m.attributes['next.rsc'] = true;
       m.name = m.name.slice(4);
+    }
+    // MCP hosts: the ROOT server span is named after the tool (owner directive) -
+    // services stamp mcp.tool.name via setMcpTool(); the HTTP instrumentation's
+    // own end-rename (route-based) ran already, so this is the final say.
+    const tool = m.attributes['mcp.tool.name'];
+    if (typeof tool === 'string' && tool !== '' && m.kind === SpanKind.SERVER) {
+      m.name = tool;
     }
   }
 
