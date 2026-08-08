@@ -57,3 +57,15 @@ describe('MCP root rename at export', () => {
     expect((internal as unknown as { name: string }).name).toBe('x');
   });
 });
+
+describe('setSpanAttributes', () => {
+  it('merges attributes onto the active span and no-ops without one', async () => {
+    const { setSpanAttributes } = await import('../src/mcp.js');
+    const setAttributes = vi.fn();
+    vi.spyOn(trace, 'getActiveSpan').mockReturnValue({ setAttributes } as never);
+    setSpanAttributes({ 'mcp.results.count': 7 });
+    expect(setAttributes).toHaveBeenCalledWith({ 'mcp.results.count': 7 });
+    vi.restoreAllMocks();
+    expect(() => setSpanAttributes({ x: 1 })).not.toThrow();
+  });
+});

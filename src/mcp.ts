@@ -19,3 +19,12 @@ export function setMcpTool(tool: string, attributes?: Attributes): void {
 export function markSpanError(message?: string): void {
   trace.getActiveSpan()?.setStatus({ code: SpanStatusCode.ERROR, message });
 }
+
+/**
+ * Merge attributes onto the ACTIVE span mid-request - the post-result half of
+ * MCP enrichment (results count, payload bytes, error code) where the values
+ * only exist after the handler ran. No-op without a started SDK.
+ */
+export function setSpanAttributes(attributes: Attributes): void {
+  trace.getActiveSpan()?.setAttributes(attributes);
+}
