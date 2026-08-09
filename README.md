@@ -176,6 +176,22 @@ import { withSpan } from '@agentage/observability';
 await withSpan('store.read', () => store.read(id), { memory: id });
 ```
 
+### Request paths are templated, not concrete
+
+On a SERVER span where the instrumentation matched a route, `url.path` carries the
+route **template** rather than the concrete target, and `url.full` is dropped. On a
+content route the concrete path is the customer's own file path - as revealing as
+the body - and the template groups identically anyway.
+
+```
+url.path   /v1/memories/:param/notes/:path     (not .../notes/00_INBOX/2026-08-04_bugs.md)
+```
+
+Unmatched paths stay verbatim: scanner probes and static assets are not user
+content, and keeping them is what makes a routing regression visible. Express
+routes registered as a `RegExp` are un-mangled from their regex source at the same
+point, so they are readable and usable as a facet.
+
 ## Why the loader hook
 
 `bootstrap.js` calls `module.register()` with
