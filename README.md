@@ -1,6 +1,6 @@
 # @agentage/observability
 
-The shared observability kit for agentage services. One package, three things:
+The shared observability kit for agentage services. One package, four things:
 
 - **Traces** - an OTLP bootstrap preloaded via `node --import`; auto-instruments
   HTTP/Express/fetch for pure-ESM services and Next.js standalone servers.
@@ -10,6 +10,9 @@ The shared observability kit for agentage services. One package, three things:
   stdio MCP servers (stdout there is the JSON-RPC channel).
 - **Errors** - `captureError(log, err, ctx)`: one call writes the structured
   error log AND flags the active span (recordException + ERROR status).
+- **Health** - `@agentage/observability/health`: the one `/health` envelope
+  every service in the estate returns, with `service` defaulting to
+  `OTEL_SERVICE_NAME` so health and telemetry always name the same thing.
 
 Everything is opt-in by env: without `OTEL_EXPORTER_OTLP_ENDPOINT` +
 `OTEL_SERVICE_NAME` the SDK is never even imported and the process behaves
@@ -69,6 +72,74 @@ try {
 } catch (err) {
   captureError(log, err, { userId });
 }
+```
+
+## Health
+
+One envelope, every service. Contract: vault `specs/health-endpoints`.
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "status": "ok", // ok | degraded | unavailable
+    "service": "memory-mcp", // defaults to OTEL_SERVICE_NAME
+    "version": "21150d69...",
+    "commit": "21150d6",
+    "buildTime": "2026-08-09T10:08:07Z", // ISO or null, never ""
+    "startedAt": "...",
+    "uptimeSeconds": 590,
+    "checks": { "store": "ok" }, // ok | degraded | down | skipped
+    "facts": { "memories": 412 }, // counts only, never state
+  },
+}
+```
+
+`status` is the worst check: any `down` makes it `unavailable` (HTTP 503), any
+`degraded` makes it `degraded` (still 200). A dependency the service can survive
+without must report `degraded`, not `down`. `data` is always present, including
+on a 503, so a probe reads the outage instead of an empty body.
+
+**Express** - mount on `/health`, and on `/api/health` where the edge routes
+only `/api`:
+
+```ts
+import { createHealthHandler } from '@agentage/observability/health';
+
+const health = createHealthHandler({
+  checks: [{ name: 'store', run: () => store.reachable(), timeoutMs: 500 }],
+  facts: () => ({ memories: store.count() }),
+});
+app.get('/health', health);
+```
+
+A check may return a `CheckState` or a boolean, and may throw, reject or hang:
+it is timed out (1s default) and read as `down`, or `degraded` when
+`optional: true`. Facts are decoration - a throwing producer is dropped, never
+reddening the service.
+
+**Next App Router** - `src/app/health/route.ts`:
+
+```ts
+import { healthResponse } from '@agentage/observability/health';
+
+// Never prerender, or commit/buildTime are baked at build instead of read from
+// the running container.
+export const dynamic = 'force-dynamic';
+export const GET = () => healthResponse();
+```
+
+Exclude the route from the auth middleware matcher: a probe must not chase a
+redirect chain to the sign-in page.
+
+**Static images with no Node process** (nginx, a built SPA) - generate the
+payload in a build stage and serve it from an exact-match location declared
+_before_ any SPA or redirect fallback, or every path answers 200 and the probe
+asserts nothing:
+
+```ts
+import { staticHealthJson } from '@agentage/observability/health';
+// -> one line, no startedAt/uptimeSeconds (there is no process to time)
 ```
 
 ## Configuration
