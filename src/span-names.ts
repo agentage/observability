@@ -23,6 +23,24 @@ export function routeFromUrl(url: string): string {
 }
 
 /**
+ * Express routes registered as a RegExp reach OTel as the regex SOURCE:
+ * `/v1/^\/memories\/([^/]+)\/notes\/(.+)$/`. Unreadable in a trace list and
+ * unusable as a facet. Turn it back into a route: `/v1/memories/:param/notes/:path`.
+ * A route with no regex syntax is returned unchanged.
+ */
+export function readableRoute(route: string): string {
+  if (!/[\\^$]|\(\[|\(\.\+\)/.test(route)) return route;
+  const cleaned = route
+    .replace(/\(\[\^\/\]\+\)/g, ':param')
+    .replace(/\(\.\+\)/g, ':path')
+    .replace(/\\\//g, '/')
+    .replace(/[\\^$]/g, '')
+    .replace(/\/{2,}/g, '/');
+  // The regex source's own closing delimiter leaves a trailing slash behind.
+  return cleaned.length > 1 && cleaned.endsWith('/') ? cleaned.slice(0, -1) : cleaned;
+}
+
+/**
  * `fetch GET http://host/api/mcps?page=1` -> `GET /api/mcps` (semconv
  * `{method} {route}`). Returns null for spans that are not \@vercel/otel
  * fetch-client spans, which stay untouched.
@@ -76,6 +94,28 @@ export class FetchSpanNameProcessor implements SpanProcessor {
     if (typeof tool === 'string' && tool !== '' && m.kind === SpanKind.SERVER) {
       m.name = tool;
     }
+    this.redactRequestPath(m);
+  }
+
+  /**
+   * `url.path` is the CONCRETE request target, so on a content route it carries the
+   * customer's own file path (`/v1/memories/m/notes/00_INBOX/2026-08-04_bugs.md`) -
+   * as revealing as the note body, which is already redacted upstream. When the
+   * instrumentation matched a route we keep the TEMPLATE instead: same grouping
+   * value, no user data. `url.full` repeats the path, so it goes with it.
+   *
+   * Only when a route matched. An unmatched path (scanner probes, static assets) is
+   * not user content and stays verbatim - that is what makes a routing regression
+   * visible.
+   */
+  private redactRequestPath(m: { attributes: Record<string, unknown>; kind: SpanKind }): void {
+    if (m.kind !== SpanKind.SERVER) return;
+    const route = m.attributes['http.route'];
+    if (typeof route !== 'string' || route === '') return;
+    const readable = readableRoute(route);
+    m.attributes['http.route'] = readable;
+    if (typeof m.attributes['url.path'] === 'string') m.attributes['url.path'] = readable;
+    delete m.attributes['url.full'];
   }
 
   forceFlush(): Promise<void> {
