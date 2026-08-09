@@ -85,3 +85,65 @@ describe('RSC fold', () => {
     expect((span as unknown as { name: string }).name).toBe('GET /browse');
   });
 });
+
+describe('readableRoute', () => {
+  it('turns a stringified express RegExp back into a route', async () => {
+    const { readableRoute } = await import('../src/span-names.js');
+    expect(readableRoute('/v1/^\\/memories\\/([^/]+)\\/notes\\/(.+)$/')).toBe(
+      '/v1/memories/:param/notes/:path'
+    );
+    expect(readableRoute('/v1/^\\/vaults\\/([^/]+)\\/notes\\/(.+)$/')).toBe(
+      '/v1/vaults/:param/notes/:path'
+    );
+  });
+
+  it('leaves an ordinary route untouched', async () => {
+    const { readableRoute } = await import('../src/span-names.js');
+    expect(readableRoute('/api/memories/:id/folders')).toBe('/api/memories/:id/folders');
+    expect(readableRoute('/browse')).toBe('/browse');
+  });
+});
+
+describe('request-path redaction', () => {
+  const mkSpan = (kind: number, attributes: Record<string, unknown>) =>
+    ({ name: 'GET /x', kind, attributes }) as unknown as Span;
+
+  it('replaces a concrete content path with its route template', async () => {
+    const { SpanKind } = await import('@opentelemetry/api');
+    const p = new FetchSpanNameProcessor();
+    const attributes: Record<string, unknown> = {
+      'http.route': '/v1/^\\/memories\\/([^/]+)\\/notes\\/(.+)$/',
+      'url.path': '/v1/memories/m/notes/00_INBOX/2026-08-04_bugs-y-decisiones.md',
+      'url.full': 'https://memory.agentage.io/v1/memories/m/notes/00_INBOX/2026-08-04_bugs.md',
+    };
+    p.onEnd(mkSpan(SpanKind.SERVER, attributes));
+    expect(attributes['url.path']).toBe('/v1/memories/:param/notes/:path');
+    expect(attributes['http.route']).toBe('/v1/memories/:param/notes/:path');
+    expect(attributes['url.full']).toBeUndefined();
+    expect(JSON.stringify(attributes)).not.toContain('decisiones');
+  });
+
+  it('leaves an unmatched path verbatim - probes are not user content', async () => {
+    const { SpanKind } = await import('@opentelemetry/api');
+    const p = new FetchSpanNameProcessor();
+    const attributes: Record<string, unknown> = {
+      'http.route': '',
+      'url.path': '/files/index.php',
+    };
+    p.onEnd(mkSpan(SpanKind.SERVER, attributes));
+    expect(attributes['url.path']).toBe('/files/index.php');
+  });
+
+  it('leaves client spans alone', async () => {
+    const { SpanKind } = await import('@opentelemetry/api');
+    const p = new FetchSpanNameProcessor();
+    const attributes: Record<string, unknown> = {
+      'http.route': '/api/mcps',
+      'url.path': '/api/mcps/abc',
+      'url.full': 'http://b:3001/api/mcps/abc',
+    };
+    p.onEnd(mkSpan(SpanKind.CLIENT, attributes));
+    expect(attributes['url.path']).toBe('/api/mcps/abc');
+    expect(attributes['url.full']).toBe('http://b:3001/api/mcps/abc');
+  });
+});
