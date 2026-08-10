@@ -84,12 +84,17 @@ One envelope, every service. Contract: vault `specs/health-endpoints`.
   "data": {
     "status": "ok", // ok | degraded | unavailable
     "service": "memory-mcp", // defaults to OTEL_SERVICE_NAME
+    "instance": "b82fc8d3", // random per process
     "version": "21150d69...",
     "commit": "21150d6",
     "buildTime": "2026-08-09T10:08:07Z", // ISO or null, never ""
     "startedAt": "...",
     "uptimeSeconds": 590,
+    "checkedAt": "2026-08-10T01:04:40.586Z", // when THIS payload was computed
+    "durationMs": 22.7, // total server-side cost
     "checks": { "store": "ok" }, // ok | degraded | down | skipped
+    "timings": { "store": 21.5, "facts": 1.1 }, // per check, plus facts
+    "reasons": { "search": "timed out after 60ms" }, // only when not ok
     "facts": { "memories": 412 }, // counts only, never state
   },
 }
@@ -99,6 +104,32 @@ One envelope, every service. Contract: vault `specs/health-endpoints`.
 `degraded` makes it `degraded` (still 200). A dependency the service can survive
 without must report `degraded`, not `down`. `data` is always present, including
 on a 503, so a probe reads the outage instead of an empty body.
+
+### Reading the timing fields
+
+They exist to answer three questions a status word cannot:
+
+- **Is this response cached?** `checkedAt` advances on every request. Frozen
+  across two probes means something in front of the service is serving a copy -
+  a CDN, a proxy, or a Next route that lost `force-dynamic`.
+- **Is this check real, or memoized?** A `timings` entry near `0` is a value the
+  service already had; a real round trip costs milliseconds. `"db": "ok"` alone
+  cannot tell you which, and a memoized check keeps reporting `ok` long after
+  the dependency dies.
+- **Was it the service or the network?** `durationMs` is the server-side cost,
+  so a probe subtracts it from its own round trip and attributes the rest to
+  TLS, the edge and the wire.
+
+`instance` is the fourth question, and the one that keeps the other three
+honest: a value that changes between probes means a **different replica
+answered**, not a cache and not a restart. Behind a load balancer, `uptimeSeconds`
+bouncing around is otherwise indistinguishable from a crash loop. It is a random
+per-process id, never the hostname - `/health` is public and must not leak
+internal topology.
+
+The same numbers go out as a `Server-Timing` header
+(`health;dur=22.7, store;dur=21.5`), so the split shows in browser devtools and
+proxy logs without parsing the body.
 
 **Express** - mount on `/health`, and on `/api/health` where the edge routes
 only `/api`:
@@ -115,8 +146,11 @@ app.get('/health', health);
 
 A check may return a `CheckState` or a boolean, and may throw, reject or hang:
 it is timed out (1s default) and read as `down`, or `degraded` when
-`optional: true`. Facts are decoration - a throwing producer is dropped, never
-reddening the service.
+`optional: true`, with the reason recorded under `reasons`. Facts are
+decoration - a throwing producer is dropped, never reddening the service - and
+are bounded by the same 1s budget (`factsTimeoutMs`). Do not let a facts
+producer run unbounded: `/health` outliving the container `HEALTHCHECK
+--timeout` is how Swarm kills a task that was only ever slow to count rows.
 
 **Next App Router** - `src/app/health/route.ts`:
 
