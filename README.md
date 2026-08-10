@@ -131,20 +131,43 @@ The same numbers go out as a `Server-Timing` header
 (`health;dur=22.7, store;dur=21.5`), so the split shows in browser devtools and
 proxy logs without parsing the body.
 
-**Express** - mount on `/health`, and on `/api/health` where the edge routes
-only `/api`:
+### Use it
 
 ```ts
-import { createHealthHandler } from '@agentage/observability/health';
+import { health } from '@agentage/observability/health';
 
-const health = createHealthHandler({
-  checks: [{ name: 'store', run: () => store.reachable(), timeoutMs: 500 }],
-  facts: () => ({ memories: store.count() }),
+// Fetch-native handler: a Next route, Hono, Cloudflare Workers, Deno, Bun.
+export const GET = health({
+  checks: { db: () => pool.query('SELECT 1') },
+  facts: () => ({ users: userCount }),
 });
-app.get('/health', health);
 ```
 
-A check may return a `CheckState` or a boolean, and may throw, reject or hang:
+`health()` with no options is a valid **liveness** probe - process up, no
+dependency checks, exactly what Kubernetes wants from liveness. Add `checks`
+and the same factory is your **readiness** probe.
+
+**Express** - `nodeHealth` is the same factory as an Express handler. Mount on
+`/health`, and on `/api/health` where the edge routes only `/api`:
+
+```ts
+import { nodeHealth } from '@agentage/observability/health';
+
+app.get(
+  '/health',
+  nodeHealth({
+    checks: {
+      store: { run: () => store.reachable(), timeoutMs: 500 },
+      cache: { run: () => redis.ping(), optional: true },
+    },
+    facts: () => ({ memories: store.count() }),
+  })
+);
+```
+
+A check is a bare function per key, or `{ run, timeoutMs, optional }` when it
+needs either knob (the named-array form from earlier releases works unchanged).
+It may return a `CheckState` or a boolean, and may throw, reject or hang:
 it is timed out (1s default) and read as `down`, or `degraded` when
 `optional: true`, with the reason recorded under `reasons`. Facts are
 decoration - a throwing producer is dropped, never reddening the service - and
@@ -155,12 +178,12 @@ producer run unbounded: `/health` outliving the container `HEALTHCHECK
 **Next App Router** - `src/app/health/route.ts`:
 
 ```ts
-import { healthResponse } from '@agentage/observability/health';
+import { health } from '@agentage/observability/health';
 
 // Never prerender, or commit/buildTime are baked at build instead of read from
 // the running container.
 export const dynamic = 'force-dynamic';
-export const GET = () => healthResponse();
+export const GET = health();
 ```
 
 Exclude the route from the auth middleware matcher: a probe must not chase a
@@ -172,9 +195,13 @@ _before_ any SPA or redirect fallback, or every path answers 200 and the probe
 asserts nothing:
 
 ```ts
-import { staticHealthJson } from '@agentage/observability/health';
+import { staticHealth } from '@agentage/observability/health';
 // -> one line, no startedAt/uptimeSeconds (there is no process to time)
 ```
+
+`createHealthHandler`, `healthResponse` and `staticHealthJson` remain exported
+and unchanged; `health`/`nodeHealth`/`staticHealth` are the same factories under
+the simpler names.
 
 ## Configuration
 
