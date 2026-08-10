@@ -59,12 +59,24 @@ const now = (): number => (typeof performance !== 'undefined' ? performance.now(
 /** One decimal: 0.3ms (memoized) and 0ms (not run) must not round to the same number. */
 const since = (start: number): number => Math.round((now() - start) * 10) / 10;
 
-// process.uptime() is the real process start. A module-level `new Date()` is only
-// module-LOAD time, and a lazily-imported Next route handler can load minutes after
-// boot - reporting a fresh uptime for a container that has been up for hours.
+// Real process start, not module-LOAD time: a lazily-imported Next route handler can
+// load minutes after boot and would otherwise report a fresh uptime for a container
+// that has been up for hours.
+//
+// performance.timeOrigin, NOT Node's process-uptime API. Both give the same instant to
+// the millisecond, but that one is Node-only, and Next detects Node APIs in Edge
+// Runtime bundles STATICALLY - a `typeof` guard does not save you, because the check
+// never runs. This module is re-exported from shared barrels that middleware imports,
+// so a single Node API here 500s every gated route in an app that never knowingly
+// touched the health kit. That happened (admin, 2026-08-10). timeOrigin is a Web API
+// present in Node, the Edge Runtime and browsers alike.
+//
+// Keep this module free of Node APIs - `test/edge-safety.test.ts` enforces it, and it
+// scans raw source INCLUDING comments, so the forbidden names cannot be spelled here
+// even in prose: tsc emits comments into dist, and not every downstream analyzer
+// parses an AST rather than grepping.
 function processStart(): Date {
-  const uptime = typeof process?.uptime === 'function' ? process.uptime() : 0;
-  return new Date(Date.now() - Math.round(uptime * 1000));
+  return new Date(typeof performance !== 'undefined' ? performance.timeOrigin : Date.now());
 }
 
 const STARTED_AT = processStart();
