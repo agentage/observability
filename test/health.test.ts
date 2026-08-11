@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   createHealthHandler,
+  health,
   healthEnvelope,
   healthResponse,
+  nodeHealth,
+  staticHealth,
   httpStatusFor,
   resolveHealth,
   resolveServiceName,
@@ -488,5 +491,66 @@ describe('staticHealthJson timing fields', () => {
     for (const field of ['instance', 'checkedAt', 'durationMs', 'timings', 'reasons']) {
       expect(data).not.toHaveProperty(field);
     }
+  });
+});
+
+describe('simple API', () => {
+  it('health() zero-config is a mountable liveness probe', async () => {
+    const handler = health({ service: 'sync', env: built });
+    const res = await handler();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = (await res.json()) as { success: boolean; data: { service: string } };
+    expect(body).toMatchObject({ success: true, data: { service: 'sync' } });
+  });
+
+  it('accepts checks as a keyed object of bare functions', async () => {
+    const res = await health({ service: 'auth', env: built, checks: { db: () => false } })();
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { data: { checks: Record<string, string> } };
+    expect(body.data.checks).toEqual({ db: 'down' });
+  });
+
+  it('accepts the spec form per key: timeoutMs and optional flow through', async () => {
+    const { envelope } = await resolveHealth({
+      service: 'sync',
+      env: built,
+      checks: {
+        cache: {
+          run: () => {
+            throw new Error('redis gone');
+          },
+          optional: true,
+        },
+        slow: { run: () => new Promise<boolean>(() => {}), timeoutMs: 25 },
+      },
+    });
+    expect(envelope.data.checks).toEqual({ cache: 'degraded', slow: 'down' });
+    expect(envelope.data.reasons?.cache).toBe('redis gone');
+    expect(envelope.data.reasons?.slow).toBe('timed out after 25ms');
+  });
+
+  it('object and array check forms produce the same envelope', async () => {
+    const asObject = await resolveHealth({
+      service: 'sync',
+      env: built,
+      checks: { db: () => true, store: () => 'degraded' as const },
+    });
+    const asArray = await resolveHealth({
+      service: 'sync',
+      env: built,
+      checks: [
+        { name: 'db', run: () => true },
+        { name: 'store', run: () => 'degraded' as const },
+      ],
+    });
+    expect(asObject.envelope.data.checks).toEqual(asArray.envelope.data.checks);
+    expect(asObject.envelope.data.status).toBe('degraded');
+    expect(asObject.httpStatus).toBe(asArray.httpStatus);
+  });
+
+  it('nodeHealth and staticHealth are the existing factories under the new names', () => {
+    expect(nodeHealth).toBe(createHealthHandler);
+    expect(staticHealth).toBe(staticHealthJson);
   });
 });

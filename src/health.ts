@@ -258,9 +258,23 @@ export async function runChecks(
   return Object.fromEntries(Object.entries(outcomes).map(([name, o]) => [name, o.state]));
 }
 
+/** Shorthand for a check given as an object entry: the key is the name. */
+export type CheckFn = HealthCheck['run'];
+/** Object-entry form of a check: `{ db: { run, timeoutMs: 250, optional: true } }`. */
+export type CheckSpec = Omit<HealthCheck, 'name'>;
+/** The named list, or the simpler keyed object: `{ db: () => pool.query('SELECT 1') }`. */
+export type ChecksInput = HealthCheck[] | Record<string, CheckFn | CheckSpec>;
+
+const toCheckList = (checks?: ChecksInput): HealthCheck[] | undefined =>
+  !checks || Array.isArray(checks)
+    ? checks
+    : Object.entries(checks).map(([name, spec]) =>
+        typeof spec === 'function' ? { name, run: spec } : { name, ...spec }
+      );
+
 export interface HealthSourceOptions {
   service?: string;
-  checks?: HealthCheck[];
+  checks?: ChecksInput;
   facts?: () => Promise<Record<string, unknown>> | Record<string, unknown>;
   checkTimeoutMs?: number;
   /** Facts get the same budget as a check: a fact off a wedged DB must not hang /health. */
@@ -306,9 +320,10 @@ export async function resolveHealth(
   options: HealthSourceOptions = {}
 ): Promise<{ envelope: HealthEnvelope; httpStatus: number }> {
   const started = now();
+  const checkList = toCheckList(options.checks);
   const [outcomes, factsOutcome] = await Promise.all([
-    options.checks?.length
-      ? runCheckOutcomes(options.checks, options.checkTimeoutMs)
+    checkList?.length
+      ? runCheckOutcomes(checkList, options.checkTimeoutMs)
       : Promise.resolve(undefined),
     options.facts
       ? safeFacts(options.facts, options.factsTimeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS)
@@ -382,6 +397,19 @@ export async function healthResponse(options: HealthSourceOptions = {}): Promise
   });
 }
 
+/**
+ * Fetch-native handler factory - the simplest mount for Next routes, Hono,
+ * Cloudflare Workers, Deno and Bun, which all accept a handler returning a
+ * `Response`. Zero-config `health()` is a valid liveness probe (process up, no
+ * dependency checks); add `checks` and it is your readiness probe.
+ */
+export function health(options: HealthSourceOptions = {}): () => Promise<Response> {
+  return () => healthResponse(options);
+}
+
+/** Express/Connect handler factory: `app.get('/health', nodeHealth({ ... }))`. */
+export const nodeHealth = createHealthHandler;
+
 export interface StaticHealthOptions {
   service?: string;
   checks?: Record<string, CheckState>;
@@ -405,3 +433,6 @@ export function staticHealthJson(options: StaticHealthOptions = {}): string {
     data,
   } satisfies HealthEnvelope<StaticHealthData>);
 }
+
+/** `staticHealthJson` under the `health`/`nodeHealth` naming. */
+export const staticHealth = staticHealthJson;
