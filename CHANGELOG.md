@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.1 - 2026-08-11
+
+- README rewritten for people who did not write this package: what it is in plain
+  language, a copy-paste quickstart per surface, the envelope and timing fields as
+  tables, an API index, and the container/Docker gotchas that cost real outages.
+  Docs only - no code change. Published so the npm page carries it.
+
 ## 0.10.0 - 2026-08-11
 
 - `/health` gains a simple public API, additive to everything that exists:
