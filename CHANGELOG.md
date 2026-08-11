@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.0 - 2026-08-12
+
+- Logs get the same simple API health got in 0.10.0:
+  - `logger(options?)` - `createLogger` with every option optional; the service
+    name defaults to `OTEL_SERVICE_NAME` (then the deliberately loud `unknown`),
+    the same rule `/health` already uses.
+  - `log.error(err)` / `log.fatal(err)` record the exception on the active trace
+    span and flag it red by themselves. `log.error({ err, ...ctx })` captures
+    too and defaults the message to the error's. Existing `log.error(err)` call
+    sites gain trace flagging on upgrade with no code change.
+  - `captureError` is no longer needed: it stays exported with the same
+    signature as a thin wrapper over `log.error`.
+
 ## 0.10.1 - 2026-08-11
 
 - README rewritten for people who did not write this package: what it is in plain
