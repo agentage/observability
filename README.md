@@ -19,7 +19,7 @@ This package is those three things, written once:
 - **Health** - a `/health` endpoint whose answer you can actually interrogate: which checks
   ran, what each one cost, whether the reply was cached, and which replica sent it.
 - **Logs** - JSON with a fixed shape, stamped with the current trace so a log line and its
-  trace are one click apart.
+  trace are one click apart - and `log.error(err)` flags that trace as failed.
 - **Traces** - an OpenTelemetry bootstrap that emits one span per request instead of fifty.
 
 Use one part or all three. The health module has **no dependencies at all** and runs on Node,
@@ -68,22 +68,25 @@ any rate limiter. For images with no Node process (nginx, a built SPA), generate
 at build time with `staticHealth()` and serve it from an exact-match location declared
 _before_ any SPA fallback - otherwise every path answers 200 and the probe proves nothing.
 
-### Logs and errors
+### Logs
 
 ```ts
-import { createLogger, captureError } from '@agentage/observability';
+import { logger } from '@agentage/observability';
 
-const log = createLogger({ service: 'agentage-auth' });
-log.info({ route: '/health' }, 'probe ok');
+const log = logger(); // service name comes from OTEL_SERVICE_NAME
+log.info({ route: '/login' }, 'user signed in');
 
 try {
   await risky();
 } catch (err) {
-  captureError(log, err, { userId }); // structured log + span exception + ERROR status
+  log.error(err); // structured log + the request's trace flagged red, one call
 }
 ```
 
-Stdio MCP servers must pass `stream: 'stderr'` - on stdio, stdout is the JSON-RPC channel.
+`log.error(err)` and `log.fatal(err)` record the exception on the active trace span and
+mark it failed - there is no separate capture call to learn. Pass context alongside the
+error as `log.error({ err, userId })`; the message defaults to the error's. Stdio MCP
+servers must pass `stream: 'stderr'` - on stdio, stdout is the JSON-RPC channel.
 
 ### Traces
 
@@ -180,16 +183,17 @@ without parsing the body.
 |                                     | `nodeHealth(options?)`                                               | Express/Connect handler                              |
 |                                     | `staticHealth(options?)`                                             | Build-time JSON for images with no process           |
 |                                     | `healthEnvelope`, `resolveHealth`, `runChecks`, `serverTimingHeader` | Lower-level pieces if you build your own transport   |
-| `@agentage/observability`           | `createLogger(options?)`                                             | pino preset with trace correlation                   |
-|                                     | `captureError(log, err, ctx?)`                                       | Structured log + span exception in one call          |
+| `@agentage/observability`           | `logger(options?)`                                                   | pino preset: trace-linked lines, `log.error` capture |
 |                                     | `withSpan(name, fn, attrs?)`                                         | Add depth deliberately; no-op without an SDK         |
 |                                     | `setMcpTool`, `markSpanError`, `setSpanAttributes`                   | MCP tool-call span semantics                         |
 | `@agentage/observability/bootstrap` | (side effect)                                                        | `node --import` trace bootstrap                      |
 | `@agentage/observability/next`      | `register`                                                           | Next.js `instrumentation.ts`                         |
 
 `createHealthHandler`, `healthResponse` and `staticHealthJson` are the previous names for
-`nodeHealth`, `health` and `staticHealth`; they remain exported and unchanged. `checks` also
-accepts the original `[{ name, run, timeoutMs, optional }]` array form.
+`nodeHealth`, `health` and `staticHealth`; `createLogger` is the previous name for `logger`,
+and `captureError(log, err)` is what `log.error(err)` now does by itself. All remain
+exported and unchanged. `checks` also accepts the original
+`[{ name, run, timeoutMs, optional }]` array form.
 
 ## Configuration
 
