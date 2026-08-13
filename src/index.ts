@@ -40,4 +40,5 @@ export {
   wrapToolHandler,
   type ToolHandler,
   type ToolResult,
+  type WrapToolOptions,
 } from './mcp.js';

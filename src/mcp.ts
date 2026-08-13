@@ -43,21 +43,27 @@ export type ToolHandler<A, R extends ToolResult> = (args: A, ...rest: unknown[])
 const errorText = (result: ToolResult): string =>
   result.content?.find((part) => typeof part.text === 'string')?.text || 'tool returned isError';
 
+export interface WrapToolOptions {
+  /** Off by default - MCP tools answer expected refusals as isError, and those are not errors. */
+  captureIsError?: boolean;
+}
+
 /**
- * Wrap an MCP tool handler so both failure modes emit the standard
- * `ErrorEvent`: a thrown error AND an `isError` result, which travels over
- * HTTP 200 and is otherwise invisible. Arguments are logged redacted.
+ * Wrap an MCP tool handler so a thrown error emits the standard `ErrorEvent`.
+ * Set `captureIsError` to also capture `isError` results, which travel over
+ * HTTP 200 and are otherwise invisible. Arguments are logged redacted.
  */
 export function wrapToolHandler<A, R extends ToolResult>(
   log: Logger,
   toolName: string,
-  handler: ToolHandler<A, R>
+  handler: ToolHandler<A, R>,
+  options: WrapToolOptions = {}
 ): (args: A, ...rest: unknown[]) => Promise<R> {
   return async (args, ...rest) => {
     const ctx = { route: toolName, source: 'tool' as const, args: redactArgs(args) };
     try {
       const result = await handler(args, ...rest);
-      if (result?.isError) {
+      if (result?.isError && options.captureIsError) {
         const err = new Error(errorText(result));
         markSpanError(err.message);
         captureError(log, err, { ...ctx, error_code: errorCodeOf(err) });
