@@ -1,6 +1,6 @@
 {
   "name": "@agentage/observability",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Shared observability kit for agentage services: OTLP trace bootstrap (node --import), pino logger preset with trace correlation, one-call error capture, and the estate /health envelope.",
   "type": "module",
   "license": "MIT",
@@ -50,7 +50,7 @@
     "test": "vitest run",
     "verify": "npm run type-check && npm run lint && npm run format:check && npm run test && npm run build && npm run smoke:dist",
     "prepublishOnly": "npm run verify",
-    "smoke:dist": "node --input-type=module -e \"const k = await import('./dist/index.js'); if (typeof k.resolveTracingConfig !== 'function' || typeof k.createLogger !== 'function' || typeof k.captureError !== 'function' || k.logger !== k.createLogger || typeof k.errorMiddleware !== 'function' || typeof k.onRequestError !== 'function' || typeof k.wrapToolHandler !== 'function' || typeof k.collectorHandler !== 'function' || typeof k.parseClientEvents !== 'function') process.exit(1); const b = await import('./dist/browser.js'); if (typeof b.installErrorReporter !== 'function' || typeof b.installErrorReporter({ endpoint: '/x', service: 'smoke' }) !== 'function') process.exit(1); const h = await import('./dist/health.js'); if (h.healthEnvelope('smoke').data.service !== 'smoke' || typeof h.createHealthHandler !== 'function' || typeof h.staticHealthJson !== 'function' || typeof h.health !== 'function' || h.nodeHealth !== h.createHealthHandler || h.staticHealth !== h.staticHealthJson) process.exit(1); await import('./dist/bootstrap.js'); console.log('dist smoke ok');\"",
+    "smoke:dist": "node --input-type=module -e \"const k = await import('./dist/index.js'); if (typeof k.resolveTracingConfig !== 'function' || typeof k.createLogger !== 'function' || typeof k.captureError !== 'function' || k.logger !== k.createLogger || typeof k.errorMiddleware !== 'function' || typeof k.onRequestError !== 'function' || typeof k.wrapToolHandler !== 'function' || typeof k.collectorHandler !== 'function' || typeof k.parseClientEvents !== 'function' || typeof k.tracedFetch !== 'function' || typeof k.rootCauseOf !== 'function' || typeof k.frameOf !== 'function' || k.errorFrameFields(new TypeError('x', { cause: Object.assign(new Error('dns'), { code: 'ENOTFOUND' }) })).error_code !== 'ENOTFOUND') process.exit(1); const b = await import('./dist/browser.js'); if (typeof b.installErrorReporter !== 'function' || typeof b.installErrorReporter({ endpoint: '/x', service: 'smoke' }) !== 'function') process.exit(1); const h = await import('./dist/health.js'); if (h.healthEnvelope('smoke').data.service !== 'smoke' || typeof h.createHealthHandler !== 'function' || typeof h.staticHealthJson !== 'function' || typeof h.health !== 'function' || h.nodeHealth !== h.createHealthHandler || h.staticHealth !== h.staticHealthJson) process.exit(1); await import('./dist/bootstrap.js'); console.log('dist smoke ok');\"",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
@@ -75,14 +75,14 @@
     "@types/node": "^24.0.0",
     "@typescript-eslint/eslint-plugin": "^8.46.4",
     "@typescript-eslint/parser": "^8.46.4",
+    "@vercel/otel": "^2.1.3",
     "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18",
-    "@vercel/otel": "^2.1.3"
+    "vitest": "^4.0.18"
   },
   "peerDependencies": {
     "@vercel/otel": ">=2"

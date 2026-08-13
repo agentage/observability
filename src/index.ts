@@ -12,6 +12,16 @@ export {
   type SerializedError,
 } from './error-event.js';
 export {
+  causeChainOf,
+  causeCodeOf,
+  causeSummaryOf,
+  errorFrameFields,
+  frameOf,
+  rootCauseOf,
+  type ErrorFrameFields,
+} from './error-frame.js';
+export { tracedFetch } from './traced-fetch.js';
+export {
   errorMiddleware,
   onRequestError,
   type ErrorMiddlewareOptions,

@@ -91,8 +91,14 @@ servers must pass `stream: 'stderr'` - on stdio, stdout is the JSON-RPC channel.
 ### Error events
 
 One error line, one shape, whatever the runtime: `err`, `route` (templated), `method`,
-`status`, `user_id`, `error_code`, `fingerprint`, `source`. Set `err.fingerprint` to
-override how the errors page groups it.
+`status`, `user_id`, `error_code`, `fingerprint`, `source`, plus `cause` and `frame`.
+Set `err.fingerprint` to override how the errors page groups it.
+
+`cause` is the deepest `.cause` in the chain (capped at 5, cycle-safe) summarized as
+`Error: getaddrinfo ENOTFOUND agentage-web_backend`, and its system `code` becomes
+`error_code` when the error carries no application code of its own. `frame` is the top
+in-app stack frame, `src/provision.ts:42:11 in provisionMemory` - node_modules, `node:`,
+`internal/`, webpack-internal and native frames are skipped. Every emitter gets both.
 
 ```ts
 import { errorMiddleware } from '@agentage/observability'; // Express: mount last
@@ -106,6 +112,15 @@ server.tool('memory__search', wrapToolHandler(log, 'memory__search', handler)); 
 
 `wrapToolHandler` also catches `isError` results, which travel over HTTP 200, and logs the
 tool arguments with credential-looking keys redacted and long values truncated.
+
+An outbound `fetch` that fails rejects with a bare `TypeError: fetch failed` whose stack
+holds no application frame. `tracedFetch` is a drop-in replacement that captures the call
+site before awaiting and attaches it to the error, so `frame` points at your code:
+
+```ts
+import { tracedFetch } from '@agentage/observability';
+const res = await tracedFetch(`${backend}/api/memories`, { headers });
+```
 
 #### From the browser
 
@@ -234,6 +249,8 @@ without parsing the body.
 |                                     | `errorMiddleware(log, options?)`                                     | Express error handler emitting the `ErrorEvent`      |
 |                                     | `onRequestError(log)`                                                | Next `instrumentation.ts` error hook                 |
 |                                     | `wrapToolHandler(log, tool, handler)`                                | MCP tool errors, including `isError` results         |
+|                                     | `tracedFetch(input, init?)`                                          | `fetch` that keeps the call site on rejection        |
+|                                     | `rootCauseOf`, `causeSummaryOf`, `causeCodeOf`, `frameOf`            | The `cause`/`frame` lifters, standalone              |
 | `@agentage/observability/bootstrap` | (side effect)                                                        | `node --import` trace bootstrap                      |
 | `@agentage/observability/next`      | `register`, `onRequestError`                                         | Next.js `instrumentation.ts`                         |
 
