@@ -43,7 +43,19 @@ export {
   type CollectorRequest,
   type CollectorResponse,
 } from './collector.js';
-export { routeFromUrl, normalizeFetchSpanName, FetchSpanNameProcessor } from './span-names.js';
+export {
+  createRequestLog,
+  type RequestLogMiddleware,
+  type RequestLogOptions,
+  type RequestLogRequest,
+  type RequestLogResponse,
+} from './request-log.js';
+export {
+  routeFromUrl,
+  readableRoute,
+  normalizeFetchSpanName,
+  FetchSpanNameProcessor,
+} from './span-names.js';
 export { NextNoiseSampler, samplerFromEnv } from './noise-sampler.js';
 export { withSpan } from './with-span.js';
 export {

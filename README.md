@@ -88,6 +88,20 @@ mark it failed - there is no separate capture call to learn. Pass context alongs
 error as `log.error({ err, userId })`; the message defaults to the error's. Stdio MCP
 servers must pass `stream: 'stderr'` - on stdio, stdout is the JSON-RPC channel.
 
+### Request logs
+
+```ts
+import { createRequestLog, logger } from '@agentage/observability';
+
+app.use(createRequestLog(logger())); // before the routers, so 404s are counted too
+```
+
+One line per finished request: `kind: 'http'`, `method`, `path`, `route` (templated),
+`status`, `duration_ms`, `user_id`, plus `trace_id`/`span_id` from the logger mixin. The
+route falls back to a low-cardinality template derived from the URL when Express has no
+matched route (404s) or matched by RegExp (a whole app mounted behind one pattern). Pass
+`classify` to add `user_type`, and `userId` when the user does not live at `req.user.id`.
+
 ### Error events
 
 One error line, one shape, whatever the runtime: `err`, `route` (templated), `method`,
@@ -253,6 +267,7 @@ without parsing the body.
 | `@agentage/observability`           | `logger(options?)`                                                   | pino preset: trace-linked lines, `log.error` capture |
 |                                     | `withSpan(name, fn, attrs?)`                                         | Add depth deliberately; no-op without an SDK         |
 |                                     | `setMcpTool`, `markSpanError`, `setSpanAttributes`                   | MCP tool-call span semantics                         |
+|                                     | `createRequestLog(log, options?)`                                    | Express middleware: one wide event per request       |
 |                                     | `errorMiddleware(log, options?)`                                     | Express error handler emitting the `ErrorEvent`      |
 |                                     | `onRequestError(log)`                                                | Next `instrumentation.ts` error hook                 |
 |                                     | `wrapToolHandler(log, tool, handler)`                                | MCP tool errors, including `isError` results         |
