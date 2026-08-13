@@ -107,7 +107,16 @@ describe('wrapToolHandler', () => {
     expect(line.args).toEqual({ path: 'a.md', token: '[redacted]' });
   });
 
-  it('emits on an isError result and marks the span', async () => {
+  it('ignores isError results by default', async () => {
+    const out = capture();
+    const log = createLogger({ service: 'memory-mcp', destination: out });
+    const wrapped = wrapToolHandler(log, 'memory__read', async () => ({ isError: true }));
+    const result = await wrapped({});
+    expect(result.isError).toBe(true);
+    expect(out.lines()).toHaveLength(0);
+  });
+
+  it('emits on an isError result when captureIsError is set', async () => {
     const setStatus = vi.fn();
     vi.spyOn(trace, 'getActiveSpan').mockReturnValue({
       setStatus,
@@ -116,10 +125,12 @@ describe('wrapToolHandler', () => {
     } as never);
     const out = capture();
     const log = createLogger({ service: 'memory-mcp', destination: out });
-    const wrapped = wrapToolHandler(log, 'memory__search', async () => ({
-      isError: true,
-      content: [{ type: 'text', text: 'not found' }],
-    }));
+    const wrapped = wrapToolHandler(
+      log,
+      'memory__search',
+      async () => ({ isError: true, content: [{ type: 'text', text: 'not found' }] }),
+      { captureIsError: true }
+    );
     const result = await wrapped({ query: 'x' });
     expect(result.isError).toBe(true);
     const [line] = out.lines();
@@ -133,7 +144,9 @@ describe('wrapToolHandler', () => {
   it('defaults the message when an isError result carries no text', async () => {
     const out = capture();
     const log = createLogger({ service: 'memory-mcp', destination: out });
-    const wrapped = wrapToolHandler(log, 'memory__list', async () => ({ isError: true }));
+    const wrapped = wrapToolHandler(log, 'memory__list', async () => ({ isError: true }), {
+      captureIsError: true,
+    });
     await wrapped({});
     expect(out.lines()[0].msg).toBe('tool returned isError');
   });
