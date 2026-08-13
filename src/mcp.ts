@@ -1,4 +1,7 @@
 import { trace, SpanStatusCode, type Attributes } from '@opentelemetry/api';
+import type { Logger } from 'pino';
+import { captureError } from './errors.js';
+import { redactArgs, errorCodeOf, fingerprintOf } from './error-event.js';
 
 /**
  * Stamp the ACTIVE (root HTTP) span as an MCP tool call: the kit renames it to
@@ -27,4 +30,46 @@ export function markSpanError(message?: string): void {
  */
 export function setSpanAttributes(attributes: Attributes): void {
   trace.getActiveSpan()?.setAttributes(attributes);
+}
+
+/** The MCP tool result shape, narrowed to what error reporting reads. */
+export interface ToolResult {
+  isError?: boolean;
+  content?: { type?: string; text?: string }[];
+}
+
+export type ToolHandler<A, R extends ToolResult> = (args: A, ...rest: unknown[]) => R | Promise<R>;
+
+const errorText = (result: ToolResult): string =>
+  result.content?.find((part) => typeof part.text === 'string')?.text || 'tool returned isError';
+
+/**
+ * Wrap an MCP tool handler so both failure modes emit the standard
+ * `ErrorEvent`: a thrown error AND an `isError` result, which travels over
+ * HTTP 200 and is otherwise invisible. Arguments are logged redacted.
+ */
+export function wrapToolHandler<A, R extends ToolResult>(
+  log: Logger,
+  toolName: string,
+  handler: ToolHandler<A, R>
+): (args: A, ...rest: unknown[]) => Promise<R> {
+  return async (args, ...rest) => {
+    const ctx = { route: toolName, source: 'tool' as const, args: redactArgs(args) };
+    try {
+      const result = await handler(args, ...rest);
+      if (result?.isError) {
+        const err = new Error(errorText(result));
+        markSpanError(err.message);
+        captureError(log, err, { ...ctx, error_code: errorCodeOf(err) });
+      }
+      return result;
+    } catch (err) {
+      captureError(log, err, {
+        ...ctx,
+        error_code: errorCodeOf(err),
+        fingerprint: fingerprintOf(err),
+      });
+      throw err;
+    }
+  };
 }
