@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.1 - 2026-08-14
+
+- `createRequestLog` captures the request identity once at middleware entry
+  (`req.originalUrl`, query stripped) instead of reading `req.path` at `finish`.
+  Express rewrites `req.path`/`req.baseUrl` to be router-relative once a mounted
+  router handles the request, so anything ending inside a router - a guard 401 on
+  a router mounted at `/api/admin` - logged the truncated `path: "/whoami"`, and
+  the `route` fallback normalized the same truncated value.
+
 ## 0.14.0 - 2026-08-13
 
 - Error lines get two more flat fields, lifted in the same shared capture path, so

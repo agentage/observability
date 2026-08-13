@@ -80,6 +80,56 @@ describe('createRequestLog', () => {
     expect(record.route).toBe('/api/memories');
   });
 
+  it('logs the full path for a request rejected inside a mounted router', () => {
+    const info = vi.fn();
+    let finish: () => void = () => {};
+    const req = {
+      method: 'GET',
+      path: '/api/admin/whoami',
+      originalUrl: '/api/admin/whoami',
+      baseUrl: '',
+    } as RequestLogRequest;
+    createRequestLog({ info } as unknown as Logger)(
+      req,
+      {
+        statusCode: 401,
+        on: (_e: 'finish', l: () => void) => {
+          finish = l;
+        },
+      },
+      () => {}
+    );
+    // Express rewrites both to be router-relative once the mounted router runs.
+    Object.assign(req, { path: '/whoami', baseUrl: '/api/admin' });
+    finish();
+    expect(info.mock.calls[0][0]).toMatchObject({
+      path: '/api/admin/whoami',
+      route: '/api/admin/whoami',
+      status: 401,
+    });
+  });
+
+  it('strips the query string from originalUrl', () => {
+    const record = run({
+      method: 'GET',
+      path: '/api/memories',
+      originalUrl: '/api/memories?limit=10&q=a',
+    });
+    expect(record.path).toBe('/api/memories');
+    expect(record.route).toBe('/api/memories');
+  });
+
+  it('prefers originalUrl over path for the matched-route regex fallback', () => {
+    const record = run({
+      path: '/get-session',
+      originalUrl: '/api/auth/get-session',
+      baseUrl: '/api/auth',
+      route: { path: '/^\\/get-session$/' },
+    });
+    expect(record.path).toBe('/api/auth/get-session');
+    expect(record.route).toBe('/api/auth/get-session');
+  });
+
   it('adds user_type from the injected classifier and honors a custom message', () => {
     const info = vi.fn();
     let finish: () => void = () => {};
