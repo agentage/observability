@@ -5,6 +5,7 @@ export {
   redactArgs,
   errorCodeOf,
   fingerprintOf,
+  type ClientErrorEvent,
   type ErrorEvent,
   type ErrorEventContext,
   type ErrorSource,
@@ -21,6 +22,14 @@ export {
   type NextErrorRequest,
   type NextRequestErrorHandler,
 } from './error-emitters.js';
+export {
+  collectorHandler,
+  parseClientEvents,
+  type CollectorHandler,
+  type CollectorOptions,
+  type CollectorRequest,
+  type CollectorResponse,
+} from './collector.js';
 export { routeFromUrl, normalizeFetchSpanName, FetchSpanNameProcessor } from './span-names.js';
 export { NextNoiseSampler, samplerFromEnv } from './noise-sampler.js';
 export { withSpan } from './with-span.js';

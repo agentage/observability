@@ -107,6 +107,32 @@ server.tool('memory__search', wrapToolHandler(log, 'memory__search', handler)); 
 `wrapToolHandler` also catches `isError` results, which travel over HTTP 200, and logs the
 tool arguments with credential-looking keys redacted and long values truncated.
 
+#### From the browser
+
+`@agentage/observability/browser` is dependency-free and tiny - it pulls in no pino, no
+OpenTelemetry, and does nothing outside a browser. It hooks `window.onerror`,
+`unhandledrejection` and `console.error`, then batches over `sendBeacon`:
+
+```ts
+import { installErrorReporter } from '@agentage/observability/browser';
+installErrorReporter({ endpoint: '/api/client-errors', service: 'web', userId: user?.id });
+
+app.post(
+  '/api/client-errors',
+  express.text({ type: '*/*' }),
+  collectorHandler(log, {
+    allowOrigins: ['https://app.agentage.io'], // 403 for anything else, 413 over 64KB
+  })
+);
+```
+
+The reporter rate-limits itself (20 events/minute by default), drops identical consecutive
+messages, and never throws. The collector whitelists the payload - unknown keys never reach
+your logs - and re-emits each event as the same error line with `source: 'client'` and the
+reporting app's `service`. `sendBeacon` posts `text/plain`, so parse the body as text (or
+`express.json({ type: '*/*' })`); `parseClientEvents(body)` accepts either a string or an
+already-parsed object.
+
 ### Traces
 
 Preload the bootstrap in your Dockerfile `CMD` (or `NODE_OPTIONS`):

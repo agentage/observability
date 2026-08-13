@@ -28,6 +28,20 @@ export interface ErrorEvent {
   source: ErrorSource;
 }
 
+/** The wire shape the browser reporter posts, and the only keys the collector forwards. */
+export interface ClientErrorEvent {
+  event_id: string;
+  ts: string;
+  err: SerializedError;
+  route?: string;
+  source: 'client';
+  service: string;
+  /** Full location.href - `route` is the pathname the errors page groups on. */
+  url?: string;
+  user_agent?: string;
+  user_id?: string;
+}
+
 /** What emitters pass to `captureError`; extra keys are allowed and kept. */
 export type ErrorEventContext = Partial<Omit<ErrorEvent, 'err'>> & Record<string, unknown>;
 
