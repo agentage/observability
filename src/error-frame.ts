@@ -5,9 +5,10 @@ interface SystemErrorFields {
   syscall?: unknown;
 }
 
-/** The non-enumerable stack `tracedFetch` attaches to a rejected fetch error. */
+/** The non-enumerable fields `tracedFetch` attaches to a rejected fetch error. */
 interface WithCallSite {
   callSite?: unknown;
+  fetchTarget?: unknown;
 }
 
 const MAX_CAUSE_DEPTH = 5;
@@ -106,14 +107,71 @@ export function frameOf(err: unknown): string | undefined {
   return typeof callSite === 'string' ? frameFromStack(callSite) : undefined;
 }
 
+/**
+ * The `fetchTarget` `tracedFetch` stamped, from the error itself or any cause -
+ * the throw site is usually a wrapper several levels above the failed fetch.
+ */
+export function targetOf(err: unknown): string | undefined {
+  if (!isError(err)) return undefined;
+  for (const candidate of [err, ...causeChainOf(err)]) {
+    const target = (candidate as WithCallSite).fetchTarget;
+    if (typeof target === 'string' && target) return target;
+  }
+  return undefined;
+}
+
+const TIMEOUT_NAMES = new Set(['AbortError', 'TimeoutError']);
+const TIMEOUT_CODES = new Set([
+  'ABORT_ERR',
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+]);
+const CONNECTIVITY_CODES = new Set([
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ECONNABORTED',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EPIPE',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'UND_ERR_SOCKET',
+]);
+// Postgres SQLSTATE: five chars, digits and capitals only (23505, 42P01).
+const SQLSTATE = /^[0-9A-Z]{5}$/;
+
+/** The coarse bucket an error falls into - the first split on an error dashboard. */
+export type ErrorCategory = 'timeout' | 'connectivity' | 'db' | 'logic';
+
+/**
+ * Classifies by ROOT cause, so a wrapper (`TypeError: fetch failed`) never hides the
+ * ENOTFOUND underneath. Anything unrecognised is `logic` - our bug until proven otherwise.
+ */
+export function categoryOf(err: unknown): ErrorCategory {
+  const root = rootCauseOf(err) ?? (isError(err) ? err : undefined);
+  if (!root) return 'logic';
+  const raw = (root as SystemErrorFields).code;
+  const code = typeof raw === 'string' ? raw : '';
+  if (TIMEOUT_NAMES.has(root.name) || TIMEOUT_CODES.has(code)) return 'timeout';
+  if (CONNECTIVITY_CODES.has(code)) return 'connectivity';
+  if (SQLSTATE.test(code)) return 'db';
+  return 'logic';
+}
+
 /** The flat fields every emitter lifts out of a wrapped error. */
 export interface ErrorFrameFields {
   cause?: string;
   frame?: string;
   error_code?: string;
+  target?: string;
+  category?: ErrorCategory;
 }
 
-/** Cause summary, in-app frame and the system `code` fallback, in one call. */
+/** Cause summary, in-app frame, system `code` fallback, fetch target and category. */
 export function errorFrameFields(err: unknown): ErrorFrameFields {
   const fields: ErrorFrameFields = {};
   const cause = causeSummaryOf(err);
@@ -122,5 +180,8 @@ export function errorFrameFields(err: unknown): ErrorFrameFields {
   if (frame) fields.frame = frame;
   const code = causeCodeOf(err);
   if (code) fields.error_code = code;
+  const target = targetOf(err);
+  if (target) fields.target = target;
+  fields.category = categoryOf(err);
   return fields;
 }

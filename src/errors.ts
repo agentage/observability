@@ -16,7 +16,15 @@ export function captureError(log: Logger, err: unknown, ctx?: ErrorEventContext)
   const named = !ctx?.error_code || ctx.error_code === error.name;
   const error_code = named && lifted.error_code ? lifted.error_code : ctx?.error_code;
   log.error(
-    { err: error, cause: lifted.cause, frame: lifted.frame, ...ctx, error_code },
+    {
+      err: error,
+      cause: lifted.cause,
+      frame: lifted.frame,
+      target: lifted.target,
+      category: lifted.category,
+      ...ctx,
+      error_code,
+    },
     error.message
   );
 }
