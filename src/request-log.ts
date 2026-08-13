@@ -5,6 +5,8 @@ import { readableRoute, routeFromUrl } from './span-names.js';
 export interface RequestLogRequest {
   method: string;
   path: string;
+  /** Full mount-relative-free URL; the only path stable after router rewrites. */
+  originalUrl?: string;
   baseUrl?: string;
   route?: { path?: unknown } | null;
 }
@@ -45,18 +47,19 @@ const dropTrailingSlash = (route: string): string =>
 
 /**
  * Matched pattern (`/api/memories/:id`), so records group instead of fragmenting
- * on ids. Two fallbacks to `routeFromUrl(req.path)`: no `req.route` (404s,
+ * on ids. Two fallbacks to `routeFromUrl(originalPath)`: no `req.route` (404s,
  * rate-limited requests), and a route Express matched by RegExp - there
  * `route.path` is the regex SOURCE, not a template (agentage-auth mounts Better
  * Auth behind one regex). `readableRoute` rewrites regex sources and only those,
  * so a rewrite is the detector.
  */
-const routeOf = (req: RequestLogRequest): string => {
+const routeOf = (req: RequestLogRequest, originalPath: string): string => {
   const template = req.route?.path;
-  if (template === undefined || template === null) return dropTrailingSlash(routeFromUrl(req.path));
+  if (template === undefined || template === null)
+    return dropTrailingSlash(routeFromUrl(originalPath));
   const joined = `${req.baseUrl ?? ''}${String(template)}`;
   const readable = readableRoute(joined);
-  return dropTrailingSlash(readable === joined ? joined : routeFromUrl(req.path));
+  return dropTrailingSlash(readable === joined ? joined : routeFromUrl(originalPath));
 };
 
 /**
@@ -73,6 +76,9 @@ export function createRequestLog(
   const message = options.message ?? 'request';
   return (req, res, next) => {
     const start = process.hrtime.bigint();
+    // Captured at entry: Express rewrites req.path/baseUrl to be router-relative
+    // once a mounted router handles the request, so at 'finish' it is truncated.
+    const originalPath = (req.originalUrl ?? req.path).split('?')[0];
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
       const userType = options.classify?.(req);
@@ -80,8 +86,8 @@ export function createRequestLog(
         {
           kind: 'http',
           method: req.method,
-          path: req.path,
-          route: routeOf(req),
+          path: originalPath,
+          route: routeOf(req, originalPath),
           status: res.statusCode,
           duration_ms: Math.round(durationMs),
           user_id: userId(req),
