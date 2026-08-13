@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
-import { setMcpTool, markSpanError } from '../src/mcp.js';
+import { setMcpTool, markSpanError, wrapToolHandler } from '../src/mcp.js';
+import { createLogger } from '../src/logger.js';
 import { FetchSpanNameProcessor } from '../src/span-names.js';
 import type { Span } from '@opentelemetry/sdk-trace-base';
 
@@ -67,5 +68,73 @@ describe('setSpanAttributes', () => {
     expect(setAttributes).toHaveBeenCalledWith({ 'mcp.results.count': 7 });
     vi.restoreAllMocks();
     expect(() => setSpanAttributes({ x: 1 })).not.toThrow();
+  });
+});
+
+function capture(): { lines: () => Record<string, unknown>[]; write: (msg: string) => void } {
+  const raw: string[] = [];
+  return {
+    lines: () =>
+      raw.flatMap((chunk) => chunk.split('\n').filter(Boolean)).map((l) => JSON.parse(l)),
+    write: (msg: string) => {
+      raw.push(msg);
+    },
+  };
+}
+
+describe('wrapToolHandler', () => {
+  it('stays quiet on success', async () => {
+    const out = capture();
+    const log = createLogger({ service: 'memory-mcp', destination: out });
+    const wrapped = wrapToolHandler(log, 'memory__read', async () => ({ content: [] }));
+    await expect(wrapped({ path: 'a.md' })).resolves.toEqual({ content: [] });
+    expect(out.lines()).toHaveLength(0);
+  });
+
+  it('emits the tool event on a throw and rethrows', async () => {
+    const out = capture();
+    const log = createLogger({ service: 'memory-mcp', destination: out });
+    const err = Object.assign(new Error('store down'), { code: 'E_STORE', fingerprint: 'fp' });
+    const wrapped = wrapToolHandler(log, 'memory__write', async () => {
+      throw err;
+    });
+    await expect(wrapped({ path: 'a.md', token: 'sekret' })).rejects.toThrow('store down');
+    const [line] = out.lines();
+    expect(line.route).toBe('memory__write');
+    expect(line.source).toBe('tool');
+    expect(line.error_code).toBe('E_STORE');
+    expect(line.fingerprint).toBe('fp');
+    expect(line.args).toEqual({ path: 'a.md', token: '[redacted]' });
+  });
+
+  it('emits on an isError result and marks the span', async () => {
+    const setStatus = vi.fn();
+    vi.spyOn(trace, 'getActiveSpan').mockReturnValue({
+      setStatus,
+      recordException: vi.fn(),
+      spanContext: () => ({ traceId: '', spanId: '', traceFlags: 0 }),
+    } as never);
+    const out = capture();
+    const log = createLogger({ service: 'memory-mcp', destination: out });
+    const wrapped = wrapToolHandler(log, 'memory__search', async () => ({
+      isError: true,
+      content: [{ type: 'text', text: 'not found' }],
+    }));
+    const result = await wrapped({ query: 'x' });
+    expect(result.isError).toBe(true);
+    const [line] = out.lines();
+    expect(line.msg).toBe('not found');
+    expect(line.route).toBe('memory__search');
+    expect(line.source).toBe('tool');
+    expect(line.error_code).toBe('Error');
+    expect(setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.ERROR, message: 'not found' });
+  });
+
+  it('defaults the message when an isError result carries no text', async () => {
+    const out = capture();
+    const log = createLogger({ service: 'memory-mcp', destination: out });
+    const wrapped = wrapToolHandler(log, 'memory__list', async () => ({ isError: true }));
+    await wrapped({});
+    expect(out.lines()[0].msg).toBe('tool returned isError');
   });
 });

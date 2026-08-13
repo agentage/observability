@@ -3,6 +3,14 @@ import { resolveTracingConfig } from './config.js';
 import { FetchSpanNameProcessor } from './span-names.js';
 import { samplerFromEnv } from './noise-sampler.js';
 
+// Same instrumentation.ts file exports both hooks, so it ships from this subpath too.
+export {
+  onRequestError,
+  type NextErrorContext,
+  type NextErrorRequest,
+  type NextRequestErrorHandler,
+} from './error-emitters.js';
+
 /**
  * Next.js entry: re-export from `instrumentation.ts` -
  * `export { register } from '@agentage/observability/next';`

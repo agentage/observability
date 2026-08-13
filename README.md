@@ -88,6 +88,25 @@ mark it failed - there is no separate capture call to learn. Pass context alongs
 error as `log.error({ err, userId })`; the message defaults to the error's. Stdio MCP
 servers must pass `stream: 'stderr'` - on stdio, stdout is the JSON-RPC channel.
 
+### Error events
+
+One error line, one shape, whatever the runtime: `err`, `route` (templated), `method`,
+`status`, `user_id`, `error_code`, `fingerprint`, `source`. Set `err.fingerprint` to
+override how the errors page groups it.
+
+```ts
+import { errorMiddleware } from '@agentage/observability'; // Express: mount last
+app.use(errorMiddleware(log));
+
+export const onRequestError = onRequestErrorHook(log); // Next instrumentation.ts
+// import { onRequestError as onRequestErrorHook } from '@agentage/observability/next';
+
+server.tool('memory__search', wrapToolHandler(log, 'memory__search', handler)); // MCP
+```
+
+`wrapToolHandler` also catches `isError` results, which travel over HTTP 200, and logs the
+tool arguments with credential-looking keys redacted and long values truncated.
+
 ### Traces
 
 Preload the bootstrap in your Dockerfile `CMD` (or `NODE_OPTIONS`):
@@ -186,8 +205,11 @@ without parsing the body.
 | `@agentage/observability`           | `logger(options?)`                                                   | pino preset: trace-linked lines, `log.error` capture |
 |                                     | `withSpan(name, fn, attrs?)`                                         | Add depth deliberately; no-op without an SDK         |
 |                                     | `setMcpTool`, `markSpanError`, `setSpanAttributes`                   | MCP tool-call span semantics                         |
+|                                     | `errorMiddleware(log, options?)`                                     | Express error handler emitting the `ErrorEvent`      |
+|                                     | `onRequestError(log)`                                                | Next `instrumentation.ts` error hook                 |
+|                                     | `wrapToolHandler(log, tool, handler)`                                | MCP tool errors, including `isError` results         |
 | `@agentage/observability/bootstrap` | (side effect)                                                        | `node --import` trace bootstrap                      |
-| `@agentage/observability/next`      | `register`                                                           | Next.js `instrumentation.ts`                         |
+| `@agentage/observability/next`      | `register`, `onRequestError`                                         | Next.js `instrumentation.ts`                         |
 
 `createHealthHandler`, `healthResponse` and `staticHealthJson` are the previous names for
 `nodeHealth`, `health` and `staticHealth`; `createLogger` is the previous name for `logger`,

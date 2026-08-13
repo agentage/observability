@@ -46,7 +46,7 @@
     "test": "vitest run",
     "verify": "npm run type-check && npm run lint && npm run format:check && npm run test && npm run build && npm run smoke:dist",
     "prepublishOnly": "npm run verify",
-    "smoke:dist": "node --input-type=module -e \"const k = await import('./dist/index.js'); if (typeof k.resolveTracingConfig !== 'function' || typeof k.createLogger !== 'function' || typeof k.captureError !== 'function' || k.logger !== k.createLogger) process.exit(1); const h = await import('./dist/health.js'); if (h.healthEnvelope('smoke').data.service !== 'smoke' || typeof h.createHealthHandler !== 'function' || typeof h.staticHealthJson !== 'function' || typeof h.health !== 'function' || h.nodeHealth !== h.createHealthHandler || h.staticHealth !== h.staticHealthJson) process.exit(1); await import('./dist/bootstrap.js'); console.log('dist smoke ok');\"",
+    "smoke:dist": "node --input-type=module -e \"const k = await import('./dist/index.js'); if (typeof k.resolveTracingConfig !== 'function' || typeof k.createLogger !== 'function' || typeof k.captureError !== 'function' || k.logger !== k.createLogger || typeof k.errorMiddleware !== 'function' || typeof k.onRequestError !== 'function' || typeof k.wrapToolHandler !== 'function') process.exit(1); const h = await import('./dist/health.js'); if (h.healthEnvelope('smoke').data.service !== 'smoke' || typeof h.createHealthHandler !== 'function' || typeof h.staticHealthJson !== 'function' || typeof h.health !== 'function' || h.nodeHealth !== h.createHealthHandler || h.staticHealth !== h.staticHealthJson) process.exit(1); await import('./dist/bootstrap.js'); console.log('dist smoke ok');\"",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
