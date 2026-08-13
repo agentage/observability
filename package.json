@@ -1,6 +1,6 @@
 {
   "name": "@agentage/observability",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Shared observability kit for agentage services: OTLP trace bootstrap (node --import), pino logger preset with trace correlation, one-call error capture, and the estate /health envelope.",
   "type": "module",
   "license": "MIT",
