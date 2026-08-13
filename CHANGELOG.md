@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.13.0 - 2026-08-13
+
+- Error lines get two new flat fields, lifted in the shared capture path so every
+  emitter (Express, Next, MCP tools) gains them with no call-site change:
+  - `cause` - deepest `.cause` in the chain (depth cap 5, cycle-safe) summarized as
+    `Error: getaddrinfo ENOTFOUND agentage-web_backend`. When the error carries no
+    application code, that cause's system `code` becomes `error_code`.
+  - `frame` - top in-app stack frame, `src/provision.ts:42:11 in provisionMemory`;
+    node_modules, `node:`, `internal/`, webpack-internal and native frames skipped.
+- `tracedFetch(input, init?)` - `fetch` that captures the call site before awaiting
+  and attaches it to a rejection as a non-enumerable `callSite`, so `frame` resolves
+  for `TypeError: fetch failed`, which otherwise has no application frame at all.
+- `rootCauseOf`, `causeChainOf`, `causeSummaryOf`, `causeCodeOf`, `frameOf` and
+  `errorFrameFields` are exported for direct use.
+
 ## 0.11.0 - 2026-08-12
 
 - Logs get the same simple API health got in 0.10.0:

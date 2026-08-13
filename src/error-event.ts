@@ -21,8 +21,12 @@ export interface ErrorEvent {
   /** HTTP status actually sent, or 500 when the handler never got that far. */
   status?: number;
   user_id?: string;
-  /** Application error code, else `err.name`. */
+  /** Application error code, else the root cause's system code, else `err.name`. */
   error_code?: string;
+  /** Root-cause summary: `Error: getaddrinfo ENOTFOUND agentage-web_backend`. */
+  cause?: string;
+  /** Top in-app stack frame: `src/provision.ts:42:11 in provisionMemory`. */
+  frame?: string;
   /** Explicit grouping override - collapses or splits groups by hand. */
   fingerprint?: string;
   source: ErrorSource;

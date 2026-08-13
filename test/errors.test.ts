@@ -56,6 +56,31 @@ describe('captureError', () => {
     expect(setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.ERROR, message: 'kaput' });
   });
 
+  it('lifts cause, frame and the system code onto the line', () => {
+    const out = capture();
+    const dns = Object.assign(new Error('getaddrinfo ENOTFOUND backend'), { code: 'ENOTFOUND' });
+    dns.stack = 'Error: getaddrinfo ENOTFOUND backend\n    at gai (/app/src/dns.ts:7:3)';
+    const err = new TypeError('fetch failed', { cause: dns });
+    err.stack = 'TypeError: fetch failed\n    at f (/app/node_modules/undici/index.js:1:1)';
+    captureError(createLogger({ service: 'x', destination: out }), err, {
+      source: 'server',
+      error_code: 'TypeError',
+    });
+    const [line] = out.lines();
+    expect(line.cause).toBe('Error: getaddrinfo ENOTFOUND backend');
+    expect(line.frame).toBe('src/dns.ts:7:3 in gai');
+    expect(line.error_code).toBe('ENOTFOUND');
+  });
+
+  it('keeps an application error code over the cause code', () => {
+    const out = capture();
+    const err = new Error('nope', {
+      cause: Object.assign(new Error('dns'), { code: 'ENOTFOUND' }),
+    });
+    captureError(createLogger({ service: 'x', destination: out }), err, { error_code: 'E_QUOTA' });
+    expect(out.lines()[0].error_code).toBe('E_QUOTA');
+  });
+
   it('is safe with no active span', () => {
     const out = capture();
     expect(() =>
