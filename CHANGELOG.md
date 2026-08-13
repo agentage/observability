@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.0 - 2026-08-13
+
+- Error lines get two more flat fields, lifted in the same shared capture path, so
+  every emitter gains them with no call-site change:
+  - `category` - the root cause bucketed into `timeout`, `connectivity`, `db` (a
+    SQLSTATE such as `23505`/`42P01`) or `logic`. Classified from the ROOT cause, so
+    a `TypeError: fetch failed` wrapper never hides the `ENOTFOUND` underneath.
+    Always present: an unrecognised error is `logic`, our bug until proven otherwise.
+  - `target` - what an outbound call was reaching for, `POST api.test:8443/v1/x/:id`:
+    method, host with port, path templated by the same rule that names fetch spans.
+    Query, hash and credentials never appear. Absent when unknown.
+- `tracedFetch` now also attaches a non-enumerable `fetchTarget` to a rejection,
+  computed before the await; `targetOf` reads it through any wrapping cause chain.
+- `categoryOf`, `targetOf` and `fetchTargetOf` are exported for direct use.
+
 ## 0.13.0 - 2026-08-13
 
 - Error lines get two new flat fields, lifted in the shared capture path so every

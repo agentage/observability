@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  categoryOf,
   causeChainOf,
   causeCodeOf,
   causeSummaryOf,
@@ -116,22 +117,83 @@ describe('frameOf', () => {
   });
 });
 
-describe('errorFrameFields', () => {
-  it('omits every key it cannot derive', () => {
-    const err = new Error('plain');
-    err.stack = 'Error: plain\n    at x (node:internal/x:1:1)';
-    expect(errorFrameFields(err)).toEqual({});
+describe('categoryOf', () => {
+  it('reads a timeout off the error name', () => {
+    expect(categoryOf(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe('timeout');
+    expect(categoryOf(Object.assign(new Error('timed out'), { name: 'TimeoutError' }))).toBe(
+      'timeout'
+    );
   });
 
-  it('returns cause, frame and the system code together', () => {
+  it.each([
+    'ABORT_ERR',
+    'ETIMEDOUT',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_BODY_TIMEOUT',
+  ])('classifies %s as timeout', (code) => {
+    expect(categoryOf(systemError('slow', code))).toBe('timeout');
+  });
+
+  it.each([
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ECONNABORTED',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'EPIPE',
+    'ERR_TLS_CERT_ALTNAME_INVALID',
+    'DEPTH_ZERO_SELF_SIGNED_CERT',
+    'UND_ERR_SOCKET',
+  ])('classifies %s as connectivity', (code) => {
+    expect(categoryOf(systemError('net', code))).toBe('connectivity');
+  });
+
+  it.each(['23505', '42P01', '08006'])('classifies SQLSTATE %s as db', (code) => {
+    expect(categoryOf(systemError('duplicate key', code))).toBe('db');
+  });
+
+  it('falls back to logic for an unknown or absent code', () => {
+    expect(categoryOf(new Error('boom'))).toBe('logic');
+    expect(categoryOf(systemError('weird', 'ESOMETHINGELSE'))).toBe('logic');
+    expect(categoryOf('not an error')).toBe('logic');
+  });
+
+  it('classifies by the ROOT cause, not the wrapper', () => {
+    const dns = systemError('getaddrinfo ENOTFOUND backend', 'ENOTFOUND');
+    const wrapped = new TypeError('fetch failed', { cause: dns });
+    expect(categoryOf(new Error('provision failed', { cause: wrapped }))).toBe('connectivity');
+  });
+
+  it('does not mistake a five-char connectivity code for SQLSTATE', () => {
+    expect(categoryOf(systemError('broken pipe', 'EPIPE'))).toBe('connectivity');
+  });
+});
+
+describe('errorFrameFields', () => {
+  it('omits every key it cannot derive, but always carries a category', () => {
+    const err = new Error('plain');
+    err.stack = 'Error: plain\n    at x (node:internal/x:1:1)';
+    expect(errorFrameFields(err)).toEqual({ category: 'logic' });
+  });
+
+  it('returns cause, frame, system code, target and category together', () => {
     const dns = systemError('getaddrinfo ENOTFOUND backend', 'ENOTFOUND');
     dns.stack = 'Error: getaddrinfo ENOTFOUND backend\n    at gai (/app/src/dns.ts:1:1)';
     const err = new TypeError('fetch failed', { cause: dns });
     err.stack = 'TypeError: fetch failed\n    at f (/app/node_modules/undici/index.js:1:1)';
+    Object.defineProperty(err, 'fetchTarget', {
+      value: 'GET backend/v1/ping',
+      configurable: true,
+    });
     expect(errorFrameFields(err)).toEqual({
       cause: 'Error: getaddrinfo ENOTFOUND backend',
       frame: 'src/dns.ts:1:1 in gai',
       error_code: 'ENOTFOUND',
+      target: 'GET backend/v1/ping',
+      category: 'connectivity',
     });
   });
 });
