@@ -1,4 +1,5 @@
 import { trace, SpanStatusCode, type Attributes, type Span } from '@opentelemetry/api';
+import { stampUserType } from './client-type.js';
 
 /**
  * The intentional-instrumentation API: one call = a properly parented span with
@@ -18,6 +19,7 @@ export async function withSpan<T>(
   return trace
     .getTracer('@agentage/observability')
     .startActiveSpan(name, { attributes }, async (span) => {
+      stampUserType(span);
       try {
         return await fn(span);
       } catch (err) {

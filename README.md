@@ -100,7 +100,20 @@ One line per finished request: `kind: 'http'`, `method`, `path`, `route` (templa
 `status`, `duration_ms`, `user_id`, plus `trace_id`/`span_id` from the logger mixin. The
 route falls back to a low-cardinality template derived from the URL when Express has no
 matched route (404s) or matched by RegExp (a whole app mounted behind one pattern). Pass
-`classify` to add `user_type`, and `userId` when the user does not live at `req.user.id`.
+`userId` when the user does not live at `req.user.id`.
+
+`user_type` classifies the traffic (`user` / `test` / `service` / `bot`) from the
+`x-client-type` header first, then the user agent, then scanner-looking paths - test and
+service callers declare themselves, they are not guessed. The middleware also puts the
+value on the request's span as the `user_type` attribute and into OTel baggage, so the
+admin console can drop test traffic from spans without regexing the user agent. Every span
+`withSpan` creates and every span `setMcpTool` stamps inherits it; for a span you create
+yourself, call `stampUserType(span)`. Pass your own `classify` to override the rule, or
+`() => undefined` to drop the field.
+
+```ts
+import { classifyClientType, stampUserType, userTypeFromContext } from '@agentage/observability';
+```
 
 ### Error events
 
@@ -268,6 +281,8 @@ without parsing the body.
 |                                     | `withSpan(name, fn, attrs?)`                                         | Add depth deliberately; no-op without an SDK         |
 |                                     | `setMcpTool`, `markSpanError`, `setSpanAttributes`                   | MCP tool-call span semantics                         |
 |                                     | `createRequestLog(log, options?)`                                    | Express middleware: one wide event per request       |
+|                                     | `classifyClientType(input)`                                          | `user`/`test`/`service`/`bot` from header, UA, path  |
+|                                     | `stampUserType(span?)`, `userTypeFromContext()`                      | Put `user_type` on spans you create yourself         |
 |                                     | `errorMiddleware(log, options?)`                                     | Express error handler emitting the `ErrorEvent`      |
 |                                     | `onRequestError(log)`                                                | Next `instrumentation.ts` error hook                 |
 |                                     | `wrapToolHandler(log, tool, handler)`                                | MCP tool errors, including `isError` results         |

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.16.0 - 2026-08-14
+
+- `user_type` is now classified by the kit and lands on SPANS, not just the request
+  log line. `classifyClientType({ header, userAgent, path })` mirrors the estate
+  rules 1:1 (the `x-client-type` header wins - `service`/`test`; then a
+  playwright/headlesschrome/puppeteer UA; then bot UAs and scanner paths; else
+  `user`), so test traffic is declared rather than guessed.
+- `createRequestLog` uses that classifier by default (an injected `classify` still
+  wins, `() => undefined` drops the field), stamps `user_type` on the request span
+  and puts it into OTel baggage. `withSpan` and `setMcpTool` stamp every span they
+  touch from that context; `stampUserType(span)` and `userTypeFromContext()` are
+  exported for spans you create yourself.
+- Note: `classify` now runs at request ENTRY instead of at `finish`, so the value
+  exists while the request is still running.
+
 ## 0.15.1 - 2026-08-14
 
 - `createRequestLog` captures the request identity once at middleware entry

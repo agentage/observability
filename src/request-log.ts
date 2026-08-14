@@ -1,4 +1,12 @@
+import { context as otelContext } from '@opentelemetry/api';
 import type { Logger } from 'pino';
+import {
+  CLIENT_TYPE_HEADER,
+  classifyClientType,
+  contextWithUserType,
+  stampUserType,
+  type UserType,
+} from './client-type.js';
 import { readableRoute, routeFromUrl } from './span-names.js';
 
 /** Structurally typed so the kit stays dependency-light - no express import. */
@@ -9,6 +17,7 @@ export interface RequestLogRequest {
   originalUrl?: string;
   baseUrl?: string;
   route?: { path?: unknown } | null;
+  headers?: Record<string, string | string[] | undefined>;
 }
 
 export interface RequestLogResponse {
@@ -18,9 +27,9 @@ export interface RequestLogResponse {
 
 export interface RequestLogOptions {
   /**
-   * Traffic classifier behind `user_type`. An injection point rather than a
-   * built-in: a shared classifier would drag a product dependency into the kit.
-   * The field is omitted when no classifier is given.
+   * Traffic classifier behind `user_type`. Defaults to the kit's
+   * `classifyClientType` over the `x-client-type` header, the user agent and the
+   * path; pass your own to override, or `() => undefined` to drop the field.
    */
   classify?: (req: RequestLogRequest) => string | undefined;
   /** Where the user id lives on your request; defaults to `req.user.id`. */
@@ -34,6 +43,20 @@ export type RequestLogMiddleware = (
   res: RequestLogResponse,
   next: () => void
 ) => void;
+
+const header = (req: RequestLogRequest, name: string): string | undefined => {
+  const value = req.headers?.[name];
+  return Array.isArray(value) ? value[0] : value;
+};
+
+const defaultClassify =
+  (originalPath: string) =>
+  (req: RequestLogRequest): UserType =>
+    classifyClientType({
+      header: header(req, CLIENT_TYPE_HEADER),
+      userAgent: header(req, 'user-agent'),
+      path: originalPath,
+    });
 
 const defaultUserId = (req: RequestLogRequest): string | undefined => {
   const id = (req as { user?: { id?: unknown } }).user?.id;
@@ -79,9 +102,11 @@ export function createRequestLog(
     // Captured at entry: Express rewrites req.path/baseUrl to be router-relative
     // once a mounted router handles the request, so at 'finish' it is truncated.
     const originalPath = (req.originalUrl ?? req.path).split('?')[0];
+    // Classified at entry, not at 'finish': the span and every descendant need
+    // the value while the request is still running.
+    const userType = (options.classify ?? defaultClassify(originalPath))(req);
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
-      const userType = options.classify?.(req);
       log.info(
         {
           kind: 'http',
@@ -96,6 +121,14 @@ export function createRequestLog(
         message
       );
     });
-    next();
+    // Only the canonical UserType values reach spans; a custom classifier's own
+    // vocabulary still lands on the log line.
+    if (userType === undefined) return next();
+    // Baggage, not just the span attribute: descendant spans are created by code
+    // that never sees the request.
+    otelContext.with(contextWithUserType(userType as UserType), () => {
+      stampUserType();
+      next();
+    });
   };
 }
