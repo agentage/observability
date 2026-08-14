@@ -1,5 +1,6 @@
 import { trace, SpanStatusCode, type Attributes } from '@opentelemetry/api';
 import type { Logger } from 'pino';
+import { stampUserType } from './client-type.js';
 import { captureError } from './errors.js';
 import { redactArgs, errorCodeOf, fingerprintOf } from './error-event.js';
 
@@ -12,6 +13,8 @@ export function setMcpTool(tool: string, attributes?: Attributes): void {
   const span = trace.getActiveSpan();
   if (!span) return;
   span.setAttribute('mcp.tool.name', tool);
+  // Tool spans are the admin console's MCP lane; without this it regexes the UA.
+  stampUserType(span);
   if (attributes) span.setAttributes(attributes);
 }
 

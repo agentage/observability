@@ -23,6 +23,16 @@ export {
   type ErrorCategory,
   type ErrorFrameFields,
 } from './error-frame.js';
+export {
+  CLIENT_TYPE_HEADER,
+  USER_TYPE_FIELD,
+  UserType,
+  classifyClientType,
+  contextWithUserType,
+  stampUserType,
+  userTypeFromContext,
+  type ClientTypeInput,
+} from './client-type.js';
 export { tracedFetch, fetchTargetOf } from './traced-fetch.js';
 export {
   errorMiddleware,

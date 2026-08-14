@@ -1,6 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { context as otelContext, trace } from '@opentelemetry/api';
 import { createRequestLog, type RequestLogRequest } from '../src/request-log.js';
+import { userTypeFromContext } from '../src/client-type.js';
+import { useStackContextManager } from './stack-context-manager.js';
 import type { Logger } from 'pino';
+
+afterEach(() => {
+  otelContext.disable();
+  vi.restoreAllMocks();
+});
 
 type LogRecord = Record<string, unknown>;
 
@@ -51,7 +59,47 @@ describe('createRequestLog', () => {
       user_id: 'user_1',
     });
     expect(typeof record.duration_ms).toBe('number');
+    expect(record.user_type).toBe('user');
+  });
+
+  it('classifies test traffic from the x-client-type header', () => {
+    const record = run({
+      path: '/api/memories',
+      headers: { 'x-client-type': 'test', 'user-agent': 'Mozilla/5.0 Chrome/141' },
+    });
+    expect(record.user_type).toBe('test');
+  });
+
+  it('falls back to the user agent and the path', () => {
+    expect(
+      run({ path: '/api/memories', headers: { 'user-agent': 'Playwright/1.55' } }).user_type
+    ).toBe('test');
+    expect(run({ path: '/wp-login.php' }).user_type).toBe('bot');
+  });
+
+  it('omits user_type when the injected classifier returns nothing', () => {
+    const record = run({ path: '/api/memories' }, { classify: () => undefined });
     expect(record).not.toHaveProperty('user_type');
+  });
+
+  it('stamps the active span and exposes user_type to descendants', () => {
+    useStackContextManager();
+    const span = { setAttribute: vi.fn() };
+    vi.spyOn(trace, 'getActiveSpan').mockReturnValue(span as never);
+    let seen: string | undefined;
+    createRequestLog({ info: vi.fn() } as unknown as Logger)(
+      {
+        method: 'GET',
+        path: '/api/memories',
+        headers: { 'x-client-type': 'test' },
+      } as RequestLogRequest,
+      { statusCode: 200, on: () => {} },
+      () => {
+        seen = userTypeFromContext();
+      }
+    );
+    expect(span.setAttribute).toHaveBeenCalledWith('user_type', 'test');
+    expect(seen).toBe('test');
   });
 
   it('falls back to the url-derived route on a 404 (no req.route)', () => {
