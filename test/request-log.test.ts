@@ -37,7 +37,45 @@ const run = (
   return info.mock.calls[0][0] as LogRecord;
 };
 
+/** Like `run` but asserts nothing, so a skipped emit is observable. */
+const capture = (req: Partial<RequestLogRequest> & LogRecord) => {
+  const info = vi.fn();
+  const next = vi.fn();
+  let listeners = 0;
+  let finish: () => void = () => {};
+  createRequestLog({ info } as unknown as Logger)(
+    { method: 'GET', path: '/', ...req } as RequestLogRequest,
+    {
+      statusCode: 200,
+      on: (_event: 'finish', listener: () => void) => {
+        listeners += 1;
+        finish = listener;
+      },
+    },
+    next
+  );
+  finish();
+  return { info, next, listeners };
+};
+
 describe('createRequestLog', () => {
+  it('skips the emit for every path the tracer treats as a probe', () => {
+    for (const path of ['/health', '/api/health', '/status', '/hc']) {
+      const { info, next, listeners } = capture({ path });
+      expect(info).not.toHaveBeenCalled();
+      expect(listeners).toBe(0);
+      expect(next).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('skips a probe reached through originalUrl with a query string', () => {
+    expect(capture({ path: '/x', originalUrl: '/health?probe=1' }).info).not.toHaveBeenCalled();
+  });
+
+  it('still emits for a probe lookalike', () => {
+    expect(capture({ path: '/healthz-lookalike' }).info).toHaveBeenCalledOnce();
+  });
+
   it('logs the wide event with the matched route template', () => {
     const record = run(
       {
@@ -102,11 +140,39 @@ describe('createRequestLog', () => {
     expect(seen).toBe('test');
   });
 
-  it('falls back to the url-derived route on a 404 (no req.route)', () => {
+  it('bounds the route to a placeholder on a 404 (no req.route)', () => {
     const record = run({ method: 'POST', path: '/api/memories/42/notes' }, undefined, 404);
-    expect(record.route).toBe('/api/memories/:id/notes');
+    expect(record.route).toBe('(unmatched)');
+    expect(record.path).toBe('/api/memories/42/notes');
     expect(record.status).toBe(404);
     expect(record.user_id).toBeUndefined();
+  });
+
+  it('gives scanner traffic one grouping key instead of one per invented url', () => {
+    const routes = ['/wp-login.php', '/.env', '/vendor/phpunit/eval-stdin.php'].map(
+      (path) => run({ path }, undefined, 404).route
+    );
+    expect(new Set(routes)).toEqual(new Set(['(unmatched)']));
+  });
+
+  it('truncates an unmatched path past the cap and marks it', () => {
+    const record = run({ path: `/${'a'.repeat(500)}` }, undefined, 404);
+    const path = record.path as string;
+    expect(path).toHaveLength(200);
+    expect(path.endsWith('...')).toBe(true);
+    expect(path.startsWith('/aaa')).toBe(true);
+  });
+
+  it('leaves an unmatched path at the cap untouched', () => {
+    const exact = `/${'a'.repeat(199)}`;
+    expect(run({ path: exact }, undefined, 404).path).toBe(exact);
+  });
+
+  it('never truncates a matched-route path', () => {
+    const long = `/api/memories/${'b'.repeat(400)}`;
+    const record = run({ path: long, baseUrl: '/api/memories', route: { path: '/:id' } });
+    expect(record.path).toBe(long);
+    expect(record.route).toBe('/api/memories/:id');
   });
 
   it('falls back to the url-derived route for a RegExp-mounted route', () => {
@@ -123,9 +189,10 @@ describe('createRequestLog', () => {
     expect(record.route).toBe('/api/memories');
   });
 
-  it('trims the trailing slash on the fallback path too', () => {
+  it('bounds the route when no router claimed the request', () => {
     const record = run({ path: '/api/memories/' });
-    expect(record.route).toBe('/api/memories');
+    expect(record.route).toBe('(unmatched)');
+    expect(record.path).toBe('/api/memories/');
   });
 
   it('logs the full path for a request rejected inside a mounted router', () => {
@@ -152,7 +219,7 @@ describe('createRequestLog', () => {
     finish();
     expect(info.mock.calls[0][0]).toMatchObject({
       path: '/api/admin/whoami',
-      route: '/api/admin/whoami',
+      route: '(unmatched)',
       status: 401,
     });
   });
@@ -162,6 +229,8 @@ describe('createRequestLog', () => {
       method: 'GET',
       path: '/api/memories',
       originalUrl: '/api/memories?limit=10&q=a',
+      baseUrl: '',
+      route: { path: '/api/memories' },
     });
     expect(record.path).toBe('/api/memories');
     expect(record.route).toBe('/api/memories');
@@ -187,7 +256,7 @@ describe('createRequestLog', () => {
       userId: () => 'from-opt',
       message: 'http',
     })(
-      { method: 'GET', path: '/health' } as RequestLogRequest,
+      { method: 'GET', path: '/api/memories' } as RequestLogRequest,
       {
         statusCode: 200,
         on: (_e: 'finish', l: () => void) => {
