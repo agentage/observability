@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- `createRequestLog` emits no line for health-probe paths (`/health`, `/api/health`,
+  `/status`, `/hc`), reusing the tracer's own `isHealthProbePath` so both lanes agree
+  on what a probe is. Probes fire every few seconds per task and carried no signal.
+  `skipHealthProbes: false` keeps them, for a service whose deploy commit-asserts on
+  a health line rather than on the response.
+- The `route` field is bounded: a request no router claimed (404s, rejections before
+  the router) now logs the literal `(unmatched)` instead of a template derived from
+  the URL, so scanner traffic cannot mint one grouping key per invented URL. That is
+  the spelling the span lane already uses for an unmatched server span. Matched
+  routes - including the RegExp-mount fallback - are unchanged. The concrete target
+  stays on `path`, capped at 200 characters with a trailing `...` when nothing
+  matched. Field NAMES are unchanged; only unmatched values are bounded.
+  `UNMATCHED_ROUTE` is exported so consumers can filter on it.
+- `tracedFetch` builds its call-site stack in the rejection branch instead of before
+  every request. V8 async stack traces still reach the awaiting caller, so the
+  attached `callSite`/`fetchTarget` shape on failures is unchanged and the success
+  path stops paying for a stack nobody reads.
+
 ## 0.16.0 - 2026-08-14
 
 - `user_type` is now classified by the kit and lands on SPANS, not just the request

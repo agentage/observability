@@ -7,6 +7,7 @@ import {
   stampUserType,
   type UserType,
 } from './client-type.js';
+import { isHealthProbePath } from './config.js';
 import { readableRoute, routeFromUrl } from './span-names.js';
 
 /** Structurally typed so the kit stays dependency-light - no express import. */
@@ -36,6 +37,12 @@ export interface RequestLogOptions {
   userId?: (req: RequestLogRequest) => string | undefined;
   /** Log message; defaults to `'request'`. */
   message?: string;
+  /**
+   * Drop the line for the paths the tracer treats as probes (`isHealthProbePath`);
+   * defaults to `true`. Pass `false` where a probe line is a real record - a deploy
+   * that commit-asserts on `/api/health` reaching the service through the edge.
+   */
+  skipHealthProbes?: boolean;
 }
 
 export type RequestLogMiddleware = (
@@ -69,17 +76,33 @@ const dropTrailingSlash = (route: string): string =>
   route.length > 1 && route.endsWith('/') ? route.slice(0, -1) : route;
 
 /**
- * Matched pattern (`/api/memories/:id`), so records group instead of fragmenting
- * on ids. Two fallbacks to `routeFromUrl(originalPath)`: no `req.route` (404s,
- * rate-limited requests), and a route Express matched by RegExp - there
- * `route.path` is the regex SOURCE, not a template (agentage-auth mounts Better
- * Auth behind one regex). `readableRoute` rewrites regex sources and only those,
- * so a rewrite is the detector.
+ * Single `route` value for every request no router claimed, so scanner traffic
+ * cannot mint one grouping key per invented URL. The concrete target stays on
+ * `path`. Same spelling the span lane already uses for an unmatched Next server
+ * span, which is the literal the admin not-found fold matches on.
  */
-const routeOf = (req: RequestLogRequest, originalPath: string): string => {
+export const UNMATCHED_ROUTE = '(unmatched)';
+
+/** Bot URLs are arbitrary length; a readable prefix bounds the line. */
+const MAX_UNMATCHED_PATH = 200;
+const TRUNCATION_MARKER = '...';
+
+const capPath = (path: string): string =>
+  path.length <= MAX_UNMATCHED_PATH
+    ? path
+    : `${path.slice(0, MAX_UNMATCHED_PATH - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+
+/**
+ * Matched pattern (`/api/memories/:id`), so records group instead of fragmenting
+ * on ids, or `null` when no `req.route` exists (404s, rate-limited requests).
+ * One fallback to `routeFromUrl(originalPath)`: a route Express matched by
+ * RegExp - there `route.path` is the regex SOURCE, not a template (agentage-auth
+ * mounts Better Auth behind one regex). `readableRoute` rewrites regex sources
+ * and only those, so a rewrite is the detector.
+ */
+const matchedRouteOf = (req: RequestLogRequest, originalPath: string): string | null => {
   const template = req.route?.path;
-  if (template === undefined || template === null)
-    return dropTrailingSlash(routeFromUrl(originalPath));
+  if (template === undefined || template === null) return null;
   const joined = `${req.baseUrl ?? ''}${String(template)}`;
   const readable = readableRoute(joined);
   return dropTrailingSlash(readable === joined ? joined : routeFromUrl(originalPath));
@@ -97,6 +120,7 @@ export function createRequestLog(
 ): RequestLogMiddleware {
   const userId = options.userId ?? defaultUserId;
   const message = options.message ?? 'request';
+  const skipHealthProbes = options.skipHealthProbes ?? true;
   return (req, res, next) => {
     const start = process.hrtime.bigint();
     // Captured at entry: Express rewrites req.path/baseUrl to be router-relative
@@ -105,22 +129,27 @@ export function createRequestLog(
     // Classified at entry, not at 'finish': the span and every descendant need
     // the value while the request is still running.
     const userType = (options.classify ?? defaultClassify(originalPath))(req);
-    res.on('finish', () => {
-      const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
-      log.info(
-        {
-          kind: 'http',
-          method: req.method,
-          path: originalPath,
-          route: routeOf(req, originalPath),
-          status: res.statusCode,
-          duration_ms: Math.round(durationMs),
-          user_id: userId(req),
-          ...(userType === undefined ? {} : { user_type: userType }),
-        },
-        message
-      );
-    });
+    // Probes fire every few seconds per task and carry no signal; the tracer
+    // already drops their spans, so both lanes agree on what a probe is.
+    if (!(skipHealthProbes && isHealthProbePath(originalPath))) {
+      res.on('finish', () => {
+        const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
+        const matched = matchedRouteOf(req, originalPath);
+        log.info(
+          {
+            kind: 'http',
+            method: req.method,
+            path: matched === null ? capPath(originalPath) : originalPath,
+            route: matched ?? UNMATCHED_ROUTE,
+            status: res.statusCode,
+            duration_ms: Math.round(durationMs),
+            user_id: userId(req),
+            ...(userType === undefined ? {} : { user_type: userType }),
+          },
+          message
+        );
+      });
+    }
     // Only the canonical UserType values reach spans; a custom classifier's own
     // vocabulary still lands on the log line.
     if (userType === undefined) return next();

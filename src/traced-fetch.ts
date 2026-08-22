@@ -42,22 +42,24 @@ const attach = (err: Error, key: string, value: string): void => {
 
 /**
  * `fetch` with the calling stack preserved: an undici rejection (`TypeError: fetch
- * failed`) carries no application frame, so the call site is captured BEFORE the
- * await and attached to the thrown error as a non-enumerable `callSite`, alongside
- * a `fetchTarget` naming what was being called (the rejection does not say).
+ * failed`) carries no application frame, so the call site is captured in the
+ * rejection branch and attached to the thrown error as a non-enumerable
+ * `callSite`, alongside a `fetchTarget` naming what was being called (the
+ * rejection does not say).
  */
 export async function tracedFetch(
   input: FetchArgs[0],
   init?: FetchArgs[1]
 ): Promise<FetchResponse> {
-  const callSite = new Error('fetch call site').stack;
-  const fetchTarget = fetchTargetOf(input, init);
   try {
     return await fetch(input, init);
   } catch (err) {
     if (err instanceof Error) {
+      // Built here, not before the await: V8 async stack traces still reach the
+      // awaiting caller, and the success path pays for neither.
+      const callSite = new Error('fetch call site').stack;
       if (callSite) attach(err, 'callSite', callSite);
-      attach(err, 'fetchTarget', fetchTarget);
+      attach(err, 'fetchTarget', fetchTargetOf(input, init));
     }
     throw err;
   }

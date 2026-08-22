@@ -14,6 +14,35 @@ describe('tracedFetch', () => {
     expect(stub).toHaveBeenCalledWith('https://example.test/x', { method: 'POST' });
   });
 
+  it('formats a call-site stack only when the fetch rejects', async () => {
+    // prepareStackTrace runs exactly when a stack is formatted, so it counts the
+    // work the success path must not do.
+    const original = Error.prepareStackTrace;
+    const formatted: string[] = [];
+    Error.prepareStackTrace = (err, frames) => {
+      formatted.push(err.message);
+      return frames.map((frame) => `    at ${String(frame)}`).join('\n');
+    };
+    try {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true } as Response);
+      await tracedFetch('https://example.test/ok');
+      expect(formatted).not.toContain('fetch call site');
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
+      await tracedFetch('https://example.test/bad').catch(() => {});
+      expect(formatted).toContain('fetch call site');
+    } finally {
+      Error.prepareStackTrace = original;
+    }
+  });
+
+  it('keeps the awaiting caller in the captured call site', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
+    const namedOutboundCaller = async (): Promise<unknown> =>
+      await tracedFetch('https://example.test/x');
+    const thrown = await namedOutboundCaller().catch((err: unknown) => err);
+    expect((thrown as { callSite?: string }).callSite).toContain('namedOutboundCaller');
+  });
+
   it('attaches a non-enumerable callSite stack on rejection and rethrows', async () => {
     const failure = new TypeError('fetch failed');
     failure.stack = 'TypeError: fetch failed\n    at fetch (node:internal/deps/undici:1:1)';

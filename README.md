@@ -97,10 +97,20 @@ app.use(createRequestLog(logger())); // before the routers, so 404s are counted 
 ```
 
 One line per finished request: `kind: 'http'`, `method`, `path`, `route` (templated),
-`status`, `duration_ms`, `user_id`, plus `trace_id`/`span_id` from the logger mixin. The
-route falls back to a low-cardinality template derived from the URL when Express has no
-matched route (404s) or matched by RegExp (a whole app mounted behind one pattern). Pass
-`userId` when the user does not live at `req.user.id`.
+`status`, `duration_ms`, `user_id`, plus `trace_id`/`span_id` from the logger mixin. Health
+probes (`/health`, `/api/health`, `/status`, `/hc`) emit no line - the same paths the tracer
+drops, so both lanes agree on what a probe is. Pass `skipHealthProbes: false` where a probe
+line is a real record, such as a deploy that commit-asserts on `/api/health` reaching the
+service through the edge.
+
+`route` is the grouping key, so it stays bounded: a matched route gives its template, a
+route matched by RegExp (a whole app mounted behind one pattern) falls back to a
+low-cardinality template derived from the URL, and a request no router claimed (404s,
+rejections before the router) gets the literal `(unmatched)` - the spelling the span lane
+already uses for an unmatched server span - one key for all of it, instead
+of one per URL a scanner invents. The concrete target stays on `path`, capped at 200
+characters with a trailing `...` when nothing matched. Pass `userId` when the user does not
+live at `req.user.id`.
 
 `user_type` classifies the traffic (`user` / `test` / `service` / `bot`) from the
 `x-client-type` header first, then the user agent, then scanner-looking paths - test and

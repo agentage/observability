@@ -55,6 +55,7 @@ export {
 } from './collector.js';
 export {
   createRequestLog,
+  UNMATCHED_ROUTE,
   type RequestLogMiddleware,
   type RequestLogOptions,
   type RequestLogRequest,
