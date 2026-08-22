@@ -99,7 +99,9 @@ app.use(createRequestLog(logger())); // before the routers, so 404s are counted 
 One line per finished request: `kind: 'http'`, `method`, `path`, `route` (templated),
 `status`, `duration_ms`, `user_id`, plus `trace_id`/`span_id` from the logger mixin. Health
 probes (`/health`, `/api/health`, `/status`, `/hc`) emit no line - the same paths the tracer
-drops, so both lanes agree on what a probe is.
+drops, so both lanes agree on what a probe is. Pass `skipHealthProbes: false` where a probe
+line is a real record, such as a deploy that commit-asserts on `/api/health` reaching the
+service through the edge.
 
 `route` is the grouping key, so it stays bounded: a matched route gives its template, a
 route matched by RegExp (a whole app mounted behind one pattern) falls back to a

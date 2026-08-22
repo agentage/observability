@@ -37,6 +37,12 @@ export interface RequestLogOptions {
   userId?: (req: RequestLogRequest) => string | undefined;
   /** Log message; defaults to `'request'`. */
   message?: string;
+  /**
+   * Drop the line for the paths the tracer treats as probes (`isHealthProbePath`);
+   * defaults to `true`. Pass `false` where a probe line is a real record - a deploy
+   * that commit-asserts on `/api/health` reaching the service through the edge.
+   */
+  skipHealthProbes?: boolean;
 }
 
 export type RequestLogMiddleware = (
@@ -114,6 +120,7 @@ export function createRequestLog(
 ): RequestLogMiddleware {
   const userId = options.userId ?? defaultUserId;
   const message = options.message ?? 'request';
+  const skipHealthProbes = options.skipHealthProbes ?? true;
   return (req, res, next) => {
     const start = process.hrtime.bigint();
     // Captured at entry: Express rewrites req.path/baseUrl to be router-relative
@@ -124,7 +131,7 @@ export function createRequestLog(
     const userType = (options.classify ?? defaultClassify(originalPath))(req);
     // Probes fire every few seconds per task and carry no signal; the tracer
     // already drops their spans, so both lanes agree on what a probe is.
-    if (!isHealthProbePath(originalPath)) {
+    if (!(skipHealthProbes && isHealthProbePath(originalPath))) {
       res.on('finish', () => {
         const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
         const matched = matchedRouteOf(req, originalPath);

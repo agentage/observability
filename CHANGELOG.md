@@ -5,6 +5,8 @@
 - `createRequestLog` emits no line for health-probe paths (`/health`, `/api/health`,
   `/status`, `/hc`), reusing the tracer's own `isHealthProbePath` so both lanes agree
   on what a probe is. Probes fire every few seconds per task and carried no signal.
+  `skipHealthProbes: false` keeps them, for a service whose deploy commit-asserts on
+  a health line rather than on the response.
 - The `route` field is bounded: a request no router claimed (404s, rejections before
   the router) now logs the literal `(unmatched)` instead of a template derived from
   the URL, so scanner traffic cannot mint one grouping key per invented URL. That is

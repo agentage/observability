@@ -38,12 +38,15 @@ const run = (
 };
 
 /** Like `run` but asserts nothing, so a skipped emit is observable. */
-const capture = (req: Partial<RequestLogRequest> & LogRecord) => {
+const capture = (
+  req: Partial<RequestLogRequest> & LogRecord,
+  options?: Parameters<typeof createRequestLog>[1]
+) => {
   const info = vi.fn();
   const next = vi.fn();
   let listeners = 0;
   let finish: () => void = () => {};
-  createRequestLog({ info } as unknown as Logger)(
+  createRequestLog({ info } as unknown as Logger, options)(
     { method: 'GET', path: '/', ...req } as RequestLogRequest,
     {
       statusCode: 200,
@@ -74,6 +77,20 @@ describe('createRequestLog', () => {
 
   it('still emits for a probe lookalike', () => {
     expect(capture({ path: '/healthz-lookalike' }).info).toHaveBeenCalledOnce();
+  });
+
+  it('keeps probe lines when skipHealthProbes is off', () => {
+    const { info, listeners } = capture({ path: '/api/health' }, { skipHealthProbes: false });
+    expect(listeners).toBe(1);
+    expect(info).toHaveBeenCalledOnce();
+    expect(info.mock.calls[0][0]).toMatchObject({ path: '/api/health', status: 200 });
+  });
+
+  it('skips probes when skipHealthProbes is left at its default', () => {
+    expect(capture({ path: '/api/health' }, { message: 'request' }).info).not.toHaveBeenCalled();
+    expect(
+      capture({ path: '/api/health' }, { skipHealthProbes: true }).info
+    ).not.toHaveBeenCalled();
   });
 
   it('logs the wide event with the matched route template', () => {
