@@ -18,7 +18,7 @@ on:
     # Single UTC cron (L0 slot). A late-firing cron just means the train
     # departs late instead of being gated away. Dependabot opens PRs
     # 16:00 UTC Friday; org triage merges from 17:00 UTC.
-    - cron: '7 19 * * 5'
+    - cron: '37 4 * * 6'
   workflow_dispatch:
 
 permissions:
