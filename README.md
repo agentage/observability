@@ -112,14 +112,30 @@ of one per URL a scanner invents. The concrete target stays on `path`, capped at
 characters with a trailing `...` when nothing matched. Pass `userId` when the user does not
 live at `req.user.id`.
 
-`user_type` classifies the traffic (`user` / `test` / `service` / `bot`) from the
-`x-client-type` header first, then the user agent, then scanner-looking paths - test and
-service callers declare themselves, they are not guessed. The middleware also puts the
-value on the request's span as the `user_type` attribute and into OTel baggage, so the
-admin console can drop test traffic from spans without regexing the user agent. Every span
-`withSpan` creates and every span `setMcpTool` stamps inherits it; for a span you create
-yourself, call `stampUserType(span)`. Pass your own `classify` to override the rule, or
-`() => undefined` to drop the field.
+`user_type` classifies the traffic (`user` / `test` / `service` / `bot`) - test and service
+callers declare themselves, they are not guessed. The rules run in one fixed order, the
+same order the edge VRL and the web `packages/shared` copy use:
+
+| #   | Rule                                                                 | Verdict   |
+| --- | -------------------------------------------------------------------- | --------- |
+| 1   | `x-client-type: service`                                             | `service` |
+| 2   | `x-client-type: test`, or a playwright/headlesschrome/puppeteer UA   | `test`    |
+| 3   | `x-client-type: bot`, a bot UA, a scanner path, or an IP in a range  | `bot`     |
+| 4   | Empty UA, or a machine-client UA (`node`, `axios`, `go-http-client`) | `service` |
+| 5   | Anything else                                                        | `user`    |
+
+Rule 4 is why an SSR fetch that sets no headers is not counted as a visitor. Rule 3's IP
+ranges are caller-supplied, since the addresses change: pass `botIpRanges` (IPv4 CIDRs, a
+bare address means `/32`) or set `OTEL_BOT_IP_RANGES`, and a fleet crawling behind
+plain-Chrome user agents is classified from where it calls rather than what it claims. The
+address comes from the leftmost `x-forwarded-for` hop. `ipInRanges(ip, ranges)` is exported
+for the same check elsewhere.
+
+The middleware also puts the value on the request's span as the `user_type` attribute and
+into OTel baggage, so the admin console can drop test traffic from spans without regexing
+the user agent. Every span `withSpan` creates and every span `setMcpTool` stamps inherits
+it; for a span you create yourself, call `stampUserType(span)`. Pass your own `classify` to
+override the rule, or `() => undefined` to drop the field.
 
 ```ts
 import { classifyClientType, stampUserType, userTypeFromContext } from '@agentage/observability';
@@ -292,6 +308,7 @@ without parsing the body.
 |                                     | `setMcpTool`, `markSpanError`, `setSpanAttributes`                   | MCP tool-call span semantics                         |
 |                                     | `createRequestLog(log, options?)`                                    | Express middleware: one wide event per request       |
 |                                     | `classifyClientType(input)`                                          | `user`/`test`/`service`/`bot` from header, UA, path  |
+|                                     | `ipInRanges(ip, ranges)`                                             | IPv4 CIDR membership, dependency-free                |
 |                                     | `stampUserType(span?)`, `userTypeFromContext()`                      | Put `user_type` on spans you create yourself         |
 |                                     | `errorMiddleware(log, options?)`                                     | Express error handler emitting the `ErrorEvent`      |
 |                                     | `onRequestError(log)`                                                | Next `instrumentation.ts` error hook                 |
@@ -324,6 +341,7 @@ Standard `OTEL_*` env, read by the SDK itself:
 | `OTEL_LOG_LEVEL`                               | Unset = silent. `debug` to diagnose a missing-trace report.                          |
 | `COMMIT_SHA` / `BUILD_TIME`                    | Image build args, surfaced as `version`/`commit`/`buildTime`.                        |
 | `LOG_LEVEL`                                    | pino level for `createLogger` (default `info`).                                      |
+| `OTEL_BOT_IP_RANGES`                           | Comma-separated IPv4 CIDRs classified as `bot`. Unset = no IP rule.                  |
 
 `COMMIT_SHA` and `BUILD_TIME` must be redeclared as `ARG` **and promoted to `ENV` in the
 runner stage** - ARGs do not cross Docker stage boundaries, and without that your endpoint
@@ -341,10 +359,16 @@ recurring way to fail a healthy container.
 ## What gets traced (minimal by design)
 
 Node services emit exactly one SERVER span per request (`{method} {route}`, status code,
-duration; scanner probes on unmatched routes collapse to `{method} (unmatched)`; health
-probes are never recorded) plus CLIENT spans for outbound http/fetch calls, which carry W3C
-propagation to the next service. No Express layer spans, no fs/dns/db auto-spans. Next apps
-mirror this through the `/next` entry (noise sampler + span-name normalizer).
+duration; scanner probes on unmatched routes collapse to `{method} (unmatched)`) plus CLIENT
+spans for outbound http/fetch calls, which carry W3C propagation to the next service. No
+Express layer spans, no fs/dns/db auto-spans. Next apps mirror this through the `/next`
+entry (noise sampler + span-name normalizer).
+
+Health probes (`/health`, `/api/health`, `/status`, `/hc`) are recorded in neither
+direction: not the inbound probe, and not an outbound call TO one. A page polling a
+service's `/health` every few seconds emits hundreds of client spans an hour and no signal,
+since the probe's answer belongs in that page's state. Record one deliberately with
+`withSpan` where a specific probe is worth a trace.
 
 Depth is intentional, not automatic:
 

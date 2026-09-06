@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- `classifyClientType` is back in lockstep with the estate's two other copies (web
+  `packages/shared/src/client-type.ts` and the Vector VRL in
+  `infrastructure/ansible/roles/log_agent/templates/vector.yaml.j2`). The edge had a
+  rule the kit never had: an EMPTY user agent, or a machine-client one (`node`,
+  `node-fetch`, `undici`, `axios`, `got`, `python-requests`, `python-urllib`,
+  `aiohttp`, `httpx`, `go-http-client`, `curl`, `wget`, `okhttp`, `java`,
+  `apache-httpclient`, `libwww`, `guzzlehttp`, `postmanruntime`), classifies as
+  `service`. Without it an SSR fetch that sets no headers was logged as a real
+  visitor - 1.8M requests a day on one service alone. The rule runs AFTER the bot
+  checks, exactly as it does at the edge, so a scanner running curl stays a bot.
+- `x-client-type: bot` is now honored, so a tier that has already classified a
+  caller can propagate the verdict downstream instead of every hop re-guessing.
+  `service` and `test` are unchanged.
+- `classifyClientType` accepts `ip` and `botIpRanges` (IPv4 CIDRs, a bare address
+  means `/32`), checked with the other bot rules: a crawler fleet behind disguised
+  plain-Chrome user agents is classified from where it calls rather than from what
+  it claims. No address list is baked into the package - the ranges are config, and
+  they change. `createRequestLog` fills `ip` from the leftmost `x-forwarded-for` hop
+  and takes ranges from `botIpRanges` or the comma-separated `OTEL_BOT_IP_RANGES`,
+  so a service turns the rule on by env alone. `ipInRanges(ip, ranges)` is exported;
+  malformed input never throws, it just does not match, and IPv6 never matches.
+- Health probes are now dropped OUTBOUND as well as inbound, on both paths: the Node
+  tracer ignores client requests to a probe path (`HttpInstrumentation`'s
+  `ignoreOutgoingRequestHook`, `UndiciInstrumentation`'s `ignoreRequestHook`) and
+  `NextNoiseSampler` NOT_RECORDs client spans whose target is one. A system page
+  polling two services emitted ~800 client spans an hour carrying no signal, since a
+  probe's answer belongs in the polling app's state. Unconditional, like the inbound
+  rule already was; a service that genuinely wants a probe span records it with
+  `withSpan`.
+
+## 0.18.0 - 2026-08-28
+
 - `createRequestLog` emits no line for health-probe paths (`/health`, `/api/health`,
   `/status`, `/hc`), reusing the tracer's own `isHealthProbePath` so both lanes agree
   on what a probe is. Probes fire every few seconds per task and carried no signal.

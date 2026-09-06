@@ -43,6 +43,13 @@ export interface RequestLogOptions {
    * that commit-asserts on `/api/health` reaching the service through the edge.
    */
   skipHealthProbes?: boolean;
+  /**
+   * IPv4 CIDRs whose traffic classifies as `bot` however its user agent presents
+   * itself - a crawler fleet behind plain-Chrome UAs. Defaults to the
+   * comma-separated `OTEL_BOT_IP_RANGES`, so a service enables it by env alone.
+   * Ignored when `classify` is injected: that classifier owns the rule.
+   */
+  botIpRanges?: readonly string[];
 }
 
 export type RequestLogMiddleware = (
@@ -56,13 +63,25 @@ const header = (req: RequestLogRequest, name: string): string | undefined => {
   return Array.isArray(value) ? value[0] : value;
 };
 
+// Leftmost hop: the address the edge saw, before Traefik appended its own.
+const clientIp = (req: RequestLogRequest): string | undefined =>
+  header(req, 'x-forwarded-for')?.split(',')[0]?.trim() || undefined;
+
+export const parseIpRanges = (raw: string | undefined): readonly string[] =>
+  (raw ?? '')
+    .split(',')
+    .map((range) => range.trim())
+    .filter((range) => range.length > 0);
+
 const defaultClassify =
-  (originalPath: string) =>
+  (originalPath: string, botIpRanges: readonly string[]) =>
   (req: RequestLogRequest): UserType =>
     classifyClientType({
       header: header(req, CLIENT_TYPE_HEADER),
       userAgent: header(req, 'user-agent'),
       path: originalPath,
+      ip: clientIp(req),
+      botIpRanges,
     });
 
 const defaultUserId = (req: RequestLogRequest): string | undefined => {
@@ -121,6 +140,7 @@ export function createRequestLog(
   const userId = options.userId ?? defaultUserId;
   const message = options.message ?? 'request';
   const skipHealthProbes = options.skipHealthProbes ?? true;
+  const botIpRanges = options.botIpRanges ?? parseIpRanges(process.env.OTEL_BOT_IP_RANGES);
   return (req, res, next) => {
     const start = process.hrtime.bigint();
     // Captured at entry: Express rewrites req.path/baseUrl to be router-relative
@@ -128,7 +148,7 @@ export function createRequestLog(
     const originalPath = (req.originalUrl ?? req.path).split('?')[0];
     // Classified at entry, not at 'finish': the span and every descendant need
     // the value while the request is still running.
-    const userType = (options.classify ?? defaultClassify(originalPath))(req);
+    const userType = (options.classify ?? defaultClassify(originalPath, botIpRanges))(req);
     // Probes fire every few seconds per task and carry no signal; the tracer
     // already drops their spans, so both lanes agree on what a probe is.
     if (!(skipHealthProbes && isHealthProbePath(originalPath))) {
