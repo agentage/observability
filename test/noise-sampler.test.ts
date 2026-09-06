@@ -50,9 +50,46 @@ describe('NextNoiseSampler', () => {
     expect(delegate.shouldSample).toHaveBeenCalledTimes(2);
   });
 
-  it('does not treat client fetches to health-like paths as probes', () => {
+  it('drops outbound probe spans by url attribute, whichever key carries it', () => {
+    const { s, delegate } = sampler();
+    for (const attrs of [
+      { 'url.full': 'https://memory.agentage.io/health' },
+      { 'http.url': 'http://backend:3001/api/health?probe=1' },
+      { 'url.path': '/status' },
+    ]) {
+      expect(sample(s, 'fetch GET x', SpanKind.CLIENT, attrs).decision).toBe(
+        SamplingDecision.NOT_RECORD
+      );
+    }
+    expect(delegate.shouldSample).not.toHaveBeenCalled();
+  });
+
+  it('drops an outbound probe span by name when attributes are absent', () => {
     const { s } = sampler();
-    expect(sample(s, 'GET /health', SpanKind.CLIENT).decision).toBe(
+    expect(sample(s, 'fetch GET https://auth.agentage.io/health', SpanKind.CLIENT).decision).toBe(
+      SamplingDecision.NOT_RECORD
+    );
+    expect(sample(s, 'GET /hc', SpanKind.CLIENT).decision).toBe(SamplingDecision.NOT_RECORD);
+  });
+
+  it('keeps outbound calls to real routes and to probe lookalikes', () => {
+    const { s, delegate } = sampler();
+    expect(
+      sample(s, 'fetch GET x', SpanKind.CLIENT, {
+        'url.full': 'https://memory.agentage.io/api/memories',
+      }).decision
+    ).toBe(SamplingDecision.RECORD_AND_SAMPLED);
+    expect(
+      sample(s, 'fetch GET x', SpanKind.CLIENT, { 'url.full': 'https://x.test/healthz-lookalike' })
+        .decision
+    ).toBe(SamplingDecision.RECORD_AND_SAMPLED);
+    expect(sample(s, 'GET', SpanKind.CLIENT).decision).toBe(SamplingDecision.RECORD_AND_SAMPLED);
+    expect(delegate.shouldSample).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps a non-url attribute value from being parsed as a target', () => {
+    const { s } = sampler();
+    expect(sample(s, 'fetch GET x', SpanKind.CLIENT, { 'url.full': 'not a url' }).decision).toBe(
       SamplingDecision.RECORD_AND_SAMPLED
     );
   });

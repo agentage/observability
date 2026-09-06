@@ -37,7 +37,8 @@ function configureDiagnostics(level: string | undefined): void {
 
 // Lean by design: ONE server span per request, outbound calls, datastore calls -
 // and nothing else (owner directive; amended 2026-08-08 to keep db/queue spans).
-// - http: server + https-client spans, health probes never recorded
+// - http: server + https-client spans, health probes never recorded in either
+//   direction (a system page polling /health emitted ~800 client spans/hour)
 // - express: creates ZERO spans (every layer type ignored) - it exists solely
 //   for route attribution: rpcMetadata.route is set BEFORE the ignore check
 //   (verified in source), so server spans still get `{method} {route}` names
@@ -45,10 +46,12 @@ function configureDiagnostics(level: string | undefined): void {
 // - mongodb/pg/redis/amqplib: the estate's datastores + queues; inert when the
 //   library is absent
 // Further depth is intentional: use withSpan() in app code.
-function instrumentations(): Instrumentation[] {
+// Exported for the wiring test only; not part of the package's public surface.
+export function instrumentations(): Instrumentation[] {
   return [
     new HttpInstrumentation({
       ignoreIncomingRequestHook: (req) => isHealthProbePath(req.url),
+      ignoreOutgoingRequestHook: (req) => isHealthProbePath(req.path ?? undefined),
     }),
     new ExpressInstrumentation({
       ignoreLayersType: [
@@ -57,7 +60,9 @@ function instrumentations(): Instrumentation[] {
         ExpressLayerType.REQUEST_HANDLER,
       ],
     }),
-    new UndiciInstrumentation(),
+    new UndiciInstrumentation({
+      ignoreRequestHook: (req) => isHealthProbePath(req.path),
+    }),
     new MongoDBInstrumentation(),
     new PgInstrumentation(),
     new RedisInstrumentation(),
