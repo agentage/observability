@@ -29,6 +29,7 @@ export {
   UserType,
   classifyClientType,
   contextWithUserType,
+  ipInRanges,
   stampUserType,
   userTypeFromContext,
   type ClientTypeInput,
@@ -55,6 +56,7 @@ export {
 } from './collector.js';
 export {
   createRequestLog,
+  parseIpRanges,
   UNMATCHED_ROUTE,
   type RequestLogMiddleware,
   type RequestLogOptions,

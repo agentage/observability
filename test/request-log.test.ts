@@ -101,6 +101,7 @@ describe('createRequestLog', () => {
         baseUrl: '/api/memories',
         route: { path: '/:id' },
         user: { id: 'user_1' },
+        headers: { 'user-agent': 'Mozilla/5.0 Chrome/141' },
       },
       undefined,
       201
@@ -130,6 +131,43 @@ describe('createRequestLog', () => {
       run({ path: '/api/memories', headers: { 'user-agent': 'Playwright/1.55' } }).user_type
     ).toBe('test');
     expect(run({ path: '/wp-login.php' }).user_type).toBe('bot');
+  });
+
+  it('classifies a header-less server-side fetch as a service, not a visitor', () => {
+    expect(run({ path: '/api/mcps' }).user_type).toBe('service');
+    expect(run({ path: '/api/mcps', headers: { 'user-agent': 'node' } }).user_type).toBe('service');
+  });
+
+  it('classifies the leftmost x-forwarded-for hop against the given ranges', () => {
+    const headers = {
+      'user-agent': 'Mozilla/5.0 Chrome/141',
+      'x-forwarded-for': ' 57.141.23.9 , 10.0.0.5',
+    };
+    expect(run({ path: '/mcp', headers }, { botIpRanges: ['57.141.20.0/22'] }).user_type).toBe(
+      'bot'
+    );
+    expect(run({ path: '/mcp', headers }, { botIpRanges: ['10.0.0.0/8'] }).user_type).toBe('user');
+    expect(run({ path: '/mcp', headers }).user_type).toBe('user');
+  });
+
+  it('defaults the ranges to OTEL_BOT_IP_RANGES', () => {
+    const headers = {
+      'user-agent': 'Mozilla/5.0 Chrome/141',
+      'x-forwarded-for': '57.141.23.9',
+    };
+    vi.stubEnv('OTEL_BOT_IP_RANGES', ' 192.168.0.0/16 , 57.141.20.0/22 ');
+    expect(run({ path: '/mcp', headers }).user_type).toBe('bot');
+    vi.stubEnv('OTEL_BOT_IP_RANGES', '');
+    expect(run({ path: '/mcp', headers }).user_type).toBe('user');
+    vi.unstubAllEnvs();
+  });
+
+  it('lets an injected classifier own the rule entirely', () => {
+    const record = run(
+      { path: '/mcp', headers: { 'x-forwarded-for': '57.141.23.9' } },
+      { classify: () => 'user', botIpRanges: ['57.141.20.0/22'] }
+    );
+    expect(record.user_type).toBe('user');
   });
 
   it('omits user_type when the injected classifier returns nothing', () => {
