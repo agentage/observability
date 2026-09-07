@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.20.0 - 2026-09-07
 
 - `classifyClientType` is back in lockstep with the estate's two other copies (web
   `packages/shared/src/client-type.ts` and the Vector VRL in
