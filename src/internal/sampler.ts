@@ -43,7 +43,7 @@ const probeTargetOf = (attributes: Attributes, spanName: string): string => {
  * (children follow via parent-based delegation), machinery spans individually.
  * Outbound probes go too - a page polling `/health` is telling you about the
  * probed service, and that answer lives in its app state, not in a span. A
- * service that genuinely wants one records it with `withSpan`.
+ * service that genuinely wants one records it with `span()`.
  * Everything else defers to the wrapped sampler.
  */
 export class NextNoiseSampler implements Sampler {

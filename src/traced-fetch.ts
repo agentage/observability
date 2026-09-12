@@ -6,7 +6,7 @@ type FetchResponse = Awaited<ReturnType<typeof fetch>>;
  * installed on the global `fetch` by the bootstrap, so every outbound call gets
  * it without an import.
  *
- * @deprecated Call `fetch` directly; removed in 1.0 final.
+ * @deprecated Call `fetch` directly; removed in the next major.
  */
 export function tracedFetch(input: FetchArgs[0], init?: FetchArgs[1]): Promise<FetchResponse> {
   return fetch(input, init);

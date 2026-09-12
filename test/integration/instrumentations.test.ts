@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { Instrumentation } from '@opentelemetry/instrumentation';
-import { instrumentations, loadOptionalInstrumentation } from '../src/internal/instrumentations.js';
+import {
+  instrumentations,
+  loadOptionalInstrumentation,
+} from '../../src/internal/instrumentations.js';
 
 describe('probe filtering is wired in both directions', () => {
   const configOf = (list: Instrumentation[], name: string): Record<string, unknown> =>

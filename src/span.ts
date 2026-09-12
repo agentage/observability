@@ -44,5 +44,5 @@ export async function span<T>(
     });
 }
 
-/** @deprecated Renamed to `span`; removed in 1.0 final. */
+/** @deprecated Renamed to `span`; removed in the next major. */
 export const withSpan = span;

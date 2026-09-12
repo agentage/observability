@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { installFetchPatch, wrapFetch } from '../src/internal/patch/fetch.js';
-import { tracedFetch } from '../src/traced-fetch.js';
-import { errorFrameFields } from '../src/internal/error-fields.js';
+import { installFetchPatch, wrapFetch } from '../../src/internal/patch/fetch.js';
+import { tracedFetch } from '../../src/traced-fetch.js';
+import { errorFrameFields } from '../../src/internal/error-fields.js';
 
 // The wrap installed on the global by the bootstrap, over a stub `fetch`.
 const patched = (inner: typeof fetch): typeof fetch => wrapFetch(inner);

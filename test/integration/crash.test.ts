@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { installCrashCapture, type CrashProcess } from '../src/internal/patch/crash.js';
+import { installCrashCapture, type CrashProcess } from '../../src/internal/patch/crash.js';
 
 const lines: Record<string, unknown>[] = [];
 

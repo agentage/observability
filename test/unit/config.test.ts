@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveTracingConfig } from '../src/internal/config.js';
+import { resolveTracingConfig } from '../../src/internal/config.js';
 
 const enabled = {
   OTEL_SERVICE_NAME: 'memory-backend',

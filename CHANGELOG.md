@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.0.0 (unreleased)
+
+- **The API is four names**: `log` (module singleton, service from `OTEL_SERVICE_NAME`, always
+  stderr), `span` (renamed from `withSpan`), `setUser`, `health` - over six entries: root,
+  `/bootstrap`, `/next`, `/browser`, `/react`, `/health`. Everything else is internal.
+- **The bootstrap wires an Express service with zero code.** Preloaded with `node --import`, it
+  patches the express Application prototype's `listen` through
+  the OTel module hook and mounts, around the routes the service already registered: the request
+  log first, `GET /health` + `GET /api/health` liveness, `POST /api/client-errors` when
+  `OTEL_CLIENT_ERROR_ORIGINS` is set, the error middleware last. A route the service owns always
+  wins, wiring is idempotent, and every piece has an `OBS_*=off` hatch.
+- **MCP tools are instrumented automatically** by the same hook (`McpServer.registerTool`/`tool`
+  and `Protocol.setRequestHandler` for `tools/call`, HTTP or stdio): a span named after the tool
+  with redacted `mcp.tool.args`, `mcp.results.count`/`mcp.response.bytes`, an ErrorEvent on throw,
+  and one `kind:'tool'` wide event per call. A hand-rolled `tool-log.ts` in a consumer is
+  **deletable**; `OBS_MCP_CAPTURE_ISERROR=on` also raises an event for an `isError` result.
+- **The global `fetch` carries the call site and target** of a failed outbound call, and
+  `uncaughtException`/`unhandledRejection` are logged `fatal` before the process dies.
+- **Browser trace ids**: `observeBrowser` (renamed from `installErrorReporter`) mints one W3C trace
+  id per user action and sends it as `traceparent` on same-origin fetches, so a click, its requests
+  and the error line share one id; readable via `getTraceId()` / `data-obs-trace`. New `/react`
+  entry ships `<ErrorReporter />`. No OpenTelemetry ships to the browser.
+- **Error envelope changed** to `{ success, error: { code, message }, traceId }` plus an
+  `X-Trace-Id` response header, and a 4xx no longer emits an ErrorEvent by default
+  (`captureBelow500: true` restores it).
+- **`captureError(log, err)` is gone**: `log.error(err)` does it. The logger lifts `cause`,
+  `frame`, `target`, `category` and `error_code` onto the line itself and records the exception on
+  the active span. `tracedFetch` -> plain `fetch`. `createLogger` -> `log`. `withSpan` -> `span`.
+- **NodeSDK dropped** for an explicit `NodeTracerProvider` + `registerInstrumentations`: a clean
+  consumer install goes from 106 packages to 41. `@opentelemetry/api` is now a **peer** (two copies
+  put spans on the wrong provider), and `instrumentation-{pg,mongodb,redis,amqplib}` are
+  **optional peers a consumer declares itself** - a service using pg or mongodb must install the
+  matching package or lose those spans, silently.
+- Deprecated re-exports (`createLogger`, `createRequestLog`, `errorMiddleware`, `onRequestError`,
+  `collectorHandler`, `wrapToolHandler`, `setMcpTool`, `markSpanError`, `setSpanAttributes`,
+  `tracedFetch`, `withSpan`, `classifyClientType`, `installErrorReporter`) all still ship in 1.0
+  and are removed in the next major.
+- README rewritten around the shapes the estate reads; tests reorganized into `test/contract`,
+  `test/integration`, `test/unit`.
+
 ## 0.20.0 - 2026-09-07
 
 - `classifyClientType` is back in lockstep with the estate's two other copies (web

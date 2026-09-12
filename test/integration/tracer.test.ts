@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { propagation, ROOT_CONTEXT, SpanKind } from '@opentelemetry/api';
 import { SamplingDecision } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import { isHealthProbePath } from '../src/internal/config.js';
-import { samplerFromTraceEnv } from '../src/internal/tracer.js';
+import { isHealthProbePath } from '../../src/internal/config.js';
+import { samplerFromTraceEnv } from '../../src/internal/tracer.js';
 
 const TRACE_ID = 'a3ce929d0e0e4736aab7ab4f8422d25c';
 

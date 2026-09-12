@@ -11,8 +11,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Protocol } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import { z } from 'zod';
-import { patchMcpServerModule, patchProtocolModule } from '../src/internal/patch/mcp.js';
-import { useAsyncContextManager } from './stack-context-manager.js';
+import { patchMcpServerModule, patchProtocolModule } from '../../src/internal/patch/mcp.js';
+import { useAsyncContextManager } from '../helpers/stack-context-manager.js';
 
 /**
  * The real SDK, patched exactly as the module hook patches it in a booted

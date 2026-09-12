@@ -58,7 +58,7 @@ export interface WrapToolOptions {
  * HTTP 200 and are otherwise invisible. Arguments are logged redacted.
  *
  * @deprecated The bootstrap instruments every MCP tool automatically; removed in
- * 1.0 final. Handlers wrapped here are marked, so the patch leaves them alone.
+ * the next major. Handlers wrapped here are marked, so the patch leaves them alone.
  */
 export function wrapToolHandler<A, R extends ToolResult>(
   log: Logger,

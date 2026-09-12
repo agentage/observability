@@ -13,7 +13,7 @@ export type {
   SerializedError,
 } from './internal/error-fields.js';
 
-// deprecated, removed in 1.0 final - migrate to log / span / setUser.
+// deprecated, removed in the next major - migrate to log / span / setUser.
 export { createLogger, type LoggerOptions } from './log.js';
 export { withSpan } from './span.js';
 export { tracedFetch } from './traced-fetch.js';

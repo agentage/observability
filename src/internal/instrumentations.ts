@@ -46,7 +46,7 @@ export async function loadOptionalInstrumentation(
 // - undici: outbound fetch() spans + W3C propagation to the next service
 // - mongodb/pg/redis/amqplib: the estate's datastores + queues, loaded only when
 //   the service installed the matching optional peer
-// Further depth is intentional: use withSpan() in app code.
+// Further depth is intentional: use span() in app code.
 // Exported for the wiring test only; not part of the package's public surface.
 export async function instrumentations(): Promise<Instrumentation[]> {
   const optional = await Promise.all(

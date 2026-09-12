@@ -3,9 +3,9 @@ import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import express, { type Express } from 'express';
 import express4 from 'express4';
-import { log } from '../src/log.js';
-import { autoWire, patchExpressModule } from '../src/internal/patch/express.js';
-import { errorMiddleware } from '../src/internal/patch/error-emitters.js';
+import { log } from '../../src/log.js';
+import { autoWire, patchExpressModule } from '../../src/internal/patch/express.js';
+import { errorMiddleware } from '../../src/internal/patch/error-emitters.js';
 
 /**
  * The listen patch itself, applied to both majors: after this, `app.listen()`

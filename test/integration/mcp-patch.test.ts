@@ -11,10 +11,10 @@ import {
   patchMcpServerModule,
   patchProtocolModule,
   redactToolArgs,
-} from '../src/internal/patch/mcp.js';
-import { wrapToolHandler } from '../src/mcp.js';
-import { log } from '../src/log.js';
-import { useAsyncContextManager } from './stack-context-manager.js';
+} from '../../src/internal/patch/mcp.js';
+import { wrapToolHandler } from '../../src/mcp.js';
+import { log } from '../../src/log.js';
+import { useAsyncContextManager } from '../helpers/stack-context-manager.js';
 import type { Logger } from 'pino';
 
 type Handler = (...args: unknown[]) => unknown;

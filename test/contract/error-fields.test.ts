@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { errorFrameFields } from '../src/internal/error-fields.js';
+import { errorFrameFields } from '../../src/internal/error-fields.js';
 
 // The individual lifters are module-private since v1; `errorFrameFields` is the one
 // entry the logger calls, so every case is asserted through the fields it emits.

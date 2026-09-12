@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { createLogger } from '../src/log.js';
+import { createLogger } from '../../src/log.js';
 import {
   collectorHandler,
   parseClientEvents,
   type CollectorRequest,
   type CollectorResponse,
-} from '../src/internal/patch/collector.js';
+} from '../../src/internal/patch/collector.js';
 
 function capture(): { lines: () => Record<string, unknown>[]; write: (msg: string) => void } {
   const raw: string[] = [];
