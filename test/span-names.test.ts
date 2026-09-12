@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { routeFromUrl, normalizeFetchSpanName, FetchSpanNameProcessor } from '../src/span-names.js';
+import { routeFromUrl, FetchSpanNameProcessor } from '../src/span-names.js';
 import type { Span } from '@opentelemetry/sdk-trace-base';
 import type { Context } from '@opentelemetry/api';
 
@@ -26,17 +26,21 @@ describe('routeFromUrl', () => {
   });
 });
 
-describe('normalizeFetchSpanName', () => {
+describe('fetch span-name normalization', () => {
+  const renamedTo = (name: string): string | undefined => {
+    const updateName = vi.fn();
+    new FetchSpanNameProcessor().onStart({ name, updateName } as unknown as Span, {} as Context);
+    return updateName.mock.calls[0]?.[0] as string | undefined;
+  };
+
   it('rewrites fetch spans to {method} {route}', () => {
-    expect(normalizeFetchSpanName('fetch GET http://b:3001/api/mcps?x=1')).toBe('GET /api/mcps');
-    expect(normalizeFetchSpanName('fetch POST https://api.agentage.io/api/keys/123')).toBe(
-      'POST /api/keys/:id'
-    );
+    expect(renamedTo('fetch GET http://b:3001/api/mcps?x=1')).toBe('GET /api/mcps');
+    expect(renamedTo('fetch POST https://api.agentage.io/api/keys/123')).toBe('POST /api/keys/:id');
   });
 
   it('leaves non-fetch spans alone', () => {
-    expect(normalizeFetchSpanName('GET /browse')).toBeNull();
-    expect(normalizeFetchSpanName('render route (app) /')).toBeNull();
+    expect(renamedTo('GET /browse')).toBeUndefined();
+    expect(renamedTo('render route (app) /')).toBeUndefined();
   });
 });
 

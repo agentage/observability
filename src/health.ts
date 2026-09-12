@@ -39,12 +39,6 @@ export interface HealthData {
   facts?: Record<string, unknown>;
 }
 
-/** No process behind it (nginx, a static bundle), so there is nothing to time or identify. */
-export type StaticHealthData = Omit<
-  HealthData,
-  'instance' | 'startedAt' | 'uptimeSeconds' | 'checkedAt' | 'durationMs' | 'timings' | 'reasons'
->;
-
 export interface HealthEnvelope<T = HealthData> {
   success: boolean;
   data: T;
@@ -99,10 +93,7 @@ function resolveInstance(): string {
 }
 
 /** 'unknown' is deliberately loud: the estate contract gate fails on it. */
-export function resolveServiceName(
-  explicit?: string,
-  env: NodeJS.ProcessEnv = process.env
-): string {
+function resolveServiceName(explicit?: string, env: NodeJS.ProcessEnv = process.env): string {
   return clean(explicit) || clean(env.OTEL_SERVICE_NAME) || 'unknown';
 }
 
@@ -121,15 +112,14 @@ const provenance = (env: NodeJS.ProcessEnv) => {
  * Worst check wins. A dependency the service can survive without must report
  * `degraded` rather than `down` - `down` means the service cannot do its job.
  */
-export function statusFromChecks(checks?: Record<string, CheckState>): HealthStatus {
+function statusFromChecks(checks?: Record<string, CheckState>): HealthStatus {
   const states = Object.values(checks ?? {});
   if (states.includes('down')) return 'unavailable';
   if (states.includes('degraded')) return 'degraded';
   return 'ok';
 }
 
-export const httpStatusFor = (status: HealthStatus): number =>
-  status === 'unavailable' ? 503 : 200;
+const httpStatusFor = (status: HealthStatus): number => (status === 'unavailable' ? 503 : 200);
 
 export interface HealthOptions {
   /** Overrides the status derived from `checks`. */
@@ -242,20 +232,12 @@ async function runCheck(check: HealthCheck, defaultTimeoutMs: number): Promise<C
 }
 
 /** Detailed form: states, per-check timings and failure reasons. */
-export async function runCheckOutcomes(
+async function runCheckOutcomes(
   checks: HealthCheck[] = [],
   defaultTimeoutMs: number = DEFAULT_CHECK_TIMEOUT_MS
 ): Promise<Record<string, CheckOutcome>> {
   const outcomes = await Promise.all(checks.map((check) => runCheck(check, defaultTimeoutMs)));
   return Object.fromEntries(checks.map((check, i) => [check.name, outcomes[i]]));
-}
-
-export async function runChecks(
-  checks: HealthCheck[] = [],
-  defaultTimeoutMs: number = DEFAULT_CHECK_TIMEOUT_MS
-): Promise<Record<string, CheckState>> {
-  const outcomes = await runCheckOutcomes(checks, defaultTimeoutMs);
-  return Object.fromEntries(Object.entries(outcomes).map(([name, o]) => [name, o.state]));
 }
 
 /** Shorthand for a check given as an object entry: the key is the name. */
@@ -316,7 +298,7 @@ async function safeFacts(
   }
 }
 
-export async function resolveHealth(
+async function resolveHealth(
   options: HealthSourceOptions = {}
 ): Promise<{ envelope: HealthEnvelope; httpStatus: number }> {
   const started = now();
@@ -358,7 +340,7 @@ export async function resolveHealth(
 // devtools and in any proxy log without parsing the body.
 const TOKEN = /[^A-Za-z0-9_-]/g;
 
-export function serverTimingHeader(data: HealthData): string {
+function serverTimingHeader(data: HealthData): string {
   const parts = [`health;dur=${data.durationMs}`];
   for (const [name, ms] of Object.entries(data.timings ?? {})) {
     parts.push(`${name.replace(TOKEN, '_')};dur=${ms}`);
@@ -406,33 +388,3 @@ export async function healthResponse(options: HealthSourceOptions = {}): Promise
 export function health(options: HealthSourceOptions = {}): () => Promise<Response> {
   return () => healthResponse(options);
 }
-
-/** Express/Connect handler factory: `app.get('/health', nodeHealth({ ... }))`. */
-export const nodeHealth = createHealthHandler;
-
-export interface StaticHealthOptions {
-  service?: string;
-  checks?: Record<string, CheckState>;
-  facts?: Record<string, unknown>;
-  env?: NodeJS.ProcessEnv;
-}
-
-/** Build-time payload for images with no Node process (nginx, static bundles). */
-export function staticHealthJson(options: StaticHealthOptions = {}): string {
-  const env = options.env ?? process.env;
-  const status = statusFromChecks(options.checks);
-  const data: StaticHealthData = {
-    status,
-    service: resolveServiceName(options.service, env),
-    ...provenance(env),
-    ...present('checks', options.checks),
-    ...present('facts', options.facts),
-  };
-  return JSON.stringify({
-    success: status !== 'unavailable',
-    data,
-  } satisfies HealthEnvelope<StaticHealthData>);
-}
-
-/** `staticHealthJson` under the `health`/`nodeHealth` naming. */
-export const staticHealth = staticHealthJson;

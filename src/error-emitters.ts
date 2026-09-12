@@ -1,5 +1,5 @@
 import type { Logger } from 'pino';
-import { captureError } from './errors.js';
+import { toError } from './error-frame.js';
 import { errorCodeOf, fingerprintOf } from './error-event.js';
 
 /** Structurally typed so the kit stays dependency-light - no express import. */
@@ -56,7 +56,8 @@ export function errorMiddleware(
   const userId = options.userId ?? defaultUserId;
   return (err, req, res, next) => {
     const status = statusOf(err);
-    captureError(log, err, {
+    log.error({
+      err: toError(err),
       route: routeOf(req),
       method: req.method,
       status,
@@ -94,7 +95,8 @@ export type NextRequestErrorHandler = (
 /** Next `instrumentation.ts` hook - server render/route errors as the same `ErrorEvent`. */
 export function onRequestError(log: Logger): NextRequestErrorHandler {
   return (err, request, context) => {
-    captureError(log, err, {
+    log.error({
+      err: toError(err),
       route: context?.routePath || request?.path,
       method: request?.method,
       status: 500,

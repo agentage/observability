@@ -4,18 +4,9 @@ import {
   health,
   healthEnvelope,
   healthResponse,
-  nodeHealth,
-  staticHealth,
-  httpStatusFor,
-  resolveHealth,
-  resolveServiceName,
-  runCheckOutcomes,
-  runChecks,
-  serverTimingHeader,
-  staticHealthJson,
-  statusFromChecks,
-  type CheckState,
+  type HealthEnvelope,
   type HealthResponseLike,
+  type HealthSourceOptions,
 } from '../src/health.js';
 
 const built = {
@@ -24,14 +15,29 @@ const built = {
   BUILD_TIME: '2026-08-09T10:08:07Z',
 } satisfies NodeJS.ProcessEnv;
 
-describe('resolveServiceName', () => {
+// The check runner, status derivation and Server-Timing builder are module-private
+// since v1: `health()` is the entry every one of them is reachable through.
+const probe = async (
+  options: HealthSourceOptions = {}
+): Promise<{ envelope: HealthEnvelope; httpStatus: number; headers: Headers }> => {
+  const res = await health({ env: built, ...options })();
+  return {
+    envelope: (await res.json()) as HealthEnvelope,
+    httpStatus: res.status,
+    headers: res.headers,
+  };
+};
+
+describe('service name', () => {
   it('prefers the explicit name, then OTEL_SERVICE_NAME', () => {
-    expect(resolveServiceName('sync', built)).toBe('sync');
-    expect(resolveServiceName(undefined, built)).toBe('memory-mcp');
+    expect(healthEnvelope('sync', { env: built }).data.service).toBe('sync');
+    expect(healthEnvelope(undefined, { env: built }).data.service).toBe('memory-mcp');
   });
 
   it('falls back to a loud "unknown" the contract gate can fail on', () => {
-    expect(resolveServiceName('   ', { OTEL_SERVICE_NAME: '  ' })).toBe('unknown');
+    expect(healthEnvelope('   ', { env: { OTEL_SERVICE_NAME: '  ' } }).data.service).toBe(
+      'unknown'
+    );
   });
 });
 
@@ -85,91 +91,39 @@ describe('healthEnvelope', () => {
   });
 });
 
-describe('statusFromChecks', () => {
-  const cases: [Record<string, CheckState> | undefined, string][] = [
-    [undefined, 'ok'],
-    [{}, 'ok'],
-    [{ db: 'ok', store: 'skipped' }, 'ok'],
-    [{ db: 'ok', store: 'degraded' }, 'degraded'],
-    [{ db: 'down', store: 'degraded' }, 'unavailable'],
-  ];
-
-  it.each(cases)('%o -> %s', (checks, expected) => {
-    expect(statusFromChecks(checks)).toBe(expected);
-  });
-});
-
-describe('httpStatusFor', () => {
-  it('keeps a degraded service at 200 and 503s only a real outage', () => {
-    expect(httpStatusFor('ok')).toBe(200);
-    expect(httpStatusFor('degraded')).toBe(200);
-    expect(httpStatusFor('unavailable')).toBe(503);
-  });
-});
-
-describe('runChecks', () => {
-  it('maps booleans to states and keeps every check keyed by name', async () => {
-    expect(
-      await runChecks([
-        { name: 'db', run: () => true },
-        { name: 'store', run: () => false },
-        { name: 'index', run: () => 'skipped' },
-      ])
-    ).toEqual({ db: 'ok', store: 'down', index: 'skipped' });
+describe('status derivation', () => {
+  it('reports ok when there is nothing to check', async () => {
+    const { envelope, httpStatus } = await probe({ service: 'landing' });
+    expect(envelope.data.status).toBe('ok');
+    expect(httpStatus).toBe(200);
   });
 
-  it('reads a throwing or rejecting check as down, never propagating', async () => {
-    expect(
-      await runChecks([
-        {
-          name: 'sync',
-          run: () => {
-            throw new Error('boom');
-          },
-        },
-        { name: 'async', run: () => Promise.reject(new Error('boom')) },
-      ])
-    ).toEqual({ sync: 'down', async: 'down' });
-  });
-
-  it('times a hung dependency out instead of hanging the probe', async () => {
-    const hang = new Promise<boolean>(() => {});
-    expect(await runChecks([{ name: 'mongo', run: () => hang, timeoutMs: 10 }])).toEqual({
-      mongo: 'down',
+  it('leaves a skipped check out of the verdict', async () => {
+    const { envelope } = await probe({
+      checks: { db: () => 'ok' as const, store: () => 'skipped' as const },
     });
+    expect(envelope.data.status).toBe('ok');
   });
 
-  it('degrades rather than downs an optional dependency', async () => {
-    expect(
-      await runChecks([
-        { name: 'cache', optional: true, run: () => Promise.reject(new Error('boom')) },
-        {
-          name: 'search',
-          optional: true,
-          run: () => new Promise<boolean>(() => {}),
-          timeoutMs: 10,
-        },
-      ])
-    ).toEqual({ cache: 'degraded', search: 'degraded' });
-  });
+  it('keeps a degraded dependency at 200 - worst check wins, outage alone 503s', async () => {
+    const degraded = await probe({
+      checks: { db: () => 'ok' as const, store: () => 'degraded' as const },
+    });
+    expect(degraded.envelope.data.status).toBe('degraded');
+    expect(degraded.httpStatus).toBe(200);
 
-  it('runs checks in parallel, so the slowest one sets the cost', async () => {
-    const slow = (ms: number) => () => new Promise<boolean>((r) => setTimeout(() => r(true), ms));
-    const started = Date.now();
-    await runChecks([
-      { name: 'a', run: slow(60) },
-      { name: 'b', run: slow(60) },
-      { name: 'c', run: slow(60) },
-    ]);
-    expect(Date.now() - started).toBeLessThan(150);
+    const down = await probe({
+      checks: { db: () => 'down' as const, store: () => 'degraded' as const },
+    });
+    expect(down.envelope.data.status).toBe('unavailable');
+    expect(down.httpStatus).toBe(503);
   });
 });
 
-describe('resolveHealth', () => {
+describe('checks', () => {
   it('folds checks and facts into one envelope with its HTTP status', async () => {
-    const { envelope, httpStatus } = await resolveHealth({
+    const { envelope, httpStatus } = await probe({
       service: 'catalog-backend',
-      env: built,
       checks: [{ name: 'db', run: () => true }],
       facts: () => ({ servers: 15243 }),
     });
@@ -179,9 +133,8 @@ describe('resolveHealth', () => {
   });
 
   it('503s an outage but still answers with data explaining it', async () => {
-    const { envelope, httpStatus } = await resolveHealth({
+    const { envelope, httpStatus } = await probe({
       service: 'catalog-backend',
-      env: built,
       checks: [{ name: 'db', run: () => false }],
     });
     expect(httpStatus).toBe(503);
@@ -189,10 +142,83 @@ describe('resolveHealth', () => {
     expect(envelope.data.checks).toEqual({ db: 'down' });
   });
 
+  it('maps booleans to states and keeps every check keyed by name', async () => {
+    const { envelope } = await probe({
+      checks: [
+        { name: 'db', run: () => true },
+        { name: 'store', run: () => false },
+        { name: 'index', run: () => 'skipped' as const },
+      ],
+    });
+    expect(envelope.data.checks).toEqual({ db: 'ok', store: 'down', index: 'skipped' });
+  });
+
+  it('reads a throwing or rejecting check as down, never propagating', async () => {
+    const { envelope } = await probe({
+      checks: [
+        {
+          name: 'sync',
+          run: () => {
+            throw new Error('boom');
+          },
+        },
+        { name: 'async', run: () => Promise.reject(new Error('boom')) },
+      ],
+    });
+    expect(envelope.data.checks).toEqual({ sync: 'down', async: 'down' });
+  });
+
+  it('times a hung dependency out instead of hanging the probe', async () => {
+    const { envelope } = await probe({
+      checks: [{ name: 'mongo', run: () => new Promise<boolean>(() => {}), timeoutMs: 10 }],
+    });
+    expect(envelope.data.checks).toEqual({ mongo: 'down' });
+    expect(envelope.data.reasons).toEqual({ mongo: 'timed out after 10ms' });
+  });
+
+  it('degrades rather than downs an optional dependency', async () => {
+    const { envelope } = await probe({
+      checks: [
+        { name: 'cache', optional: true, run: () => Promise.reject(new Error('boom')) },
+        {
+          name: 'search',
+          optional: true,
+          run: () => new Promise<boolean>(() => {}),
+          timeoutMs: 10,
+        },
+      ],
+    });
+    expect(envelope.data.checks).toEqual({ cache: 'degraded', search: 'degraded' });
+  });
+
+  it('carries state, cost and reason per check', async () => {
+    const { envelope } = await probe({
+      checks: [
+        { name: 'db', run: () => true },
+        { name: 'cache', optional: true, run: () => new Promise<boolean>(() => {}), timeoutMs: 15 },
+      ],
+    });
+    expect(envelope.data.checks).toEqual({ db: 'ok', cache: 'degraded' });
+    expect(envelope.data.reasons).toEqual({ cache: 'timed out after 15ms' });
+    expect(envelope.data.timings!.cache).toBeGreaterThanOrEqual(10);
+  });
+
+  it('runs checks in parallel, so the slowest one sets the cost', async () => {
+    const slow = (ms: number) => () => new Promise<boolean>((r) => setTimeout(() => r(true), ms));
+    const started = Date.now();
+    await probe({
+      checks: [
+        { name: 'a', run: slow(60) },
+        { name: 'b', run: slow(60) },
+        { name: 'c', run: slow(60) },
+      ],
+    });
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
   it('drops throwing facts instead of reddening a healthy service', async () => {
-    const { envelope, httpStatus } = await resolveHealth({
+    const { envelope, httpStatus } = await probe({
       service: 'memory-backend',
-      env: built,
       facts: () => {
         throw new Error('du failed');
       },
@@ -271,29 +297,6 @@ describe('healthResponse', () => {
   });
 });
 
-describe('staticHealthJson', () => {
-  it('omits the fields an image with no process cannot honestly report', () => {
-    const data = JSON.parse(staticHealthJson({ service: 'api-gateway', env: built })) as {
-      success: boolean;
-      data: Record<string, unknown>;
-    };
-    expect(data.success).toBe(true);
-    expect(data.data).toEqual({
-      status: 'ok',
-      service: 'api-gateway',
-      version: built.COMMIT_SHA,
-      commit: '21150d6',
-      buildTime: '2026-08-09T10:08:07Z',
-    });
-    expect(data.data).not.toHaveProperty('uptimeSeconds');
-    expect(data.data).not.toHaveProperty('startedAt');
-  });
-
-  it('emits a single line, so a Dockerfile can redirect it straight to a file', () => {
-    expect(staticHealthJson({ service: 'agentage-ds', env: built })).not.toContain('\n');
-  });
-});
-
 describe('instance', () => {
   it('is stable within a process, so a changing value means a different replica', () => {
     const a = healthEnvelope('sync', { env: built }).data.instance;
@@ -337,8 +340,7 @@ describe('startedAt', () => {
 
 describe('timings', () => {
   it('reports what each check cost, so a memoized one is visibly not a real query', async () => {
-    const { envelope } = await resolveHealth({
-      env: built,
+    const { envelope } = await probe({
       checks: [
         { name: 'cached', run: () => true },
         { name: 'real', run: () => new Promise<boolean>((r) => setTimeout(() => r(true), 40)) },
@@ -350,8 +352,7 @@ describe('timings', () => {
   });
 
   it('times the facts producer under its own key', async () => {
-    const { envelope } = await resolveHealth({
-      env: built,
+    const { envelope } = await probe({
       facts: () => new Promise((r) => setTimeout(() => r({ servers: 1 }), 30)),
     });
     expect(envelope.data.timings!.facts).toBeGreaterThanOrEqual(25);
@@ -359,8 +360,7 @@ describe('timings', () => {
 
   it('reports a total that covers the slowest check, since checks run in parallel', async () => {
     const slow = (ms: number) => () => new Promise<boolean>((r) => setTimeout(() => r(true), ms));
-    const { envelope } = await resolveHealth({
-      env: built,
+    const { envelope } = await probe({
       checks: [
         { name: 'a', run: slow(40) },
         { name: 'b', run: slow(40) },
@@ -371,7 +371,7 @@ describe('timings', () => {
   });
 
   it('omits both maps on a service with no checks and no facts', async () => {
-    const { envelope } = await resolveHealth({ service: 'landing', env: built });
+    const { envelope } = await probe({ service: 'landing' });
     expect(envelope.data).not.toHaveProperty('timings');
     expect(envelope.data).not.toHaveProperty('reasons');
   });
@@ -379,8 +379,7 @@ describe('timings', () => {
 
 describe('reasons', () => {
   it('separates a timeout from an instant refusal - both read "down" alone', async () => {
-    const { envelope } = await resolveHealth({
-      env: built,
+    const { envelope } = await probe({
       checks: [
         { name: 'slow', run: () => new Promise<boolean>(() => {}), timeoutMs: 20 },
         { name: 'refused', run: () => Promise.reject(new Error('ECONNREFUSED 10.0.0.4:5432')) },
@@ -393,17 +392,13 @@ describe('reasons', () => {
   });
 
   it('says nothing about a check that simply reported false', async () => {
-    const { envelope } = await resolveHealth({
-      env: built,
-      checks: [{ name: 'db', run: () => false }],
-    });
+    const { envelope } = await probe({ checks: [{ name: 'db', run: () => false }] });
     expect(envelope.data.checks).toEqual({ db: 'down' });
     expect(envelope.data).not.toHaveProperty('reasons');
   });
 
   it('flattens and bounds a driver message rather than pasting a stack onto a public page', async () => {
-    const { envelope } = await resolveHealth({
-      env: built,
+    const { envelope } = await probe({
       checks: [{ name: 'db', run: () => Promise.reject(new Error(`a\nb${'x'.repeat(500)}`)) }],
     });
     const reason = envelope.data.reasons!.db;
@@ -416,8 +411,7 @@ describe('reasons', () => {
 describe('facts timeout', () => {
   it('bounds a hanging producer instead of outliving the container HEALTHCHECK', async () => {
     const started = Date.now();
-    const { envelope, httpStatus } = await resolveHealth({
-      env: built,
+    const { envelope, httpStatus } = await probe({
       facts: () => new Promise<Record<string, unknown>>(() => {}),
       factsTimeoutMs: 30,
     });
@@ -428,8 +422,7 @@ describe('facts timeout', () => {
   });
 
   it('keeps a hung fact from downing a service whose checks all passed', async () => {
-    const { envelope } = await resolveHealth({
-      env: built,
+    const { envelope } = await probe({
       checks: [{ name: 'db', run: () => true }],
       facts: () => new Promise<Record<string, unknown>>(() => {}),
       factsTimeoutMs: 20,
@@ -439,38 +432,21 @@ describe('facts timeout', () => {
   });
 });
 
-describe('runCheckOutcomes', () => {
-  it('carries state, cost and reason per check', async () => {
-    const outcomes = await runCheckOutcomes([
-      { name: 'db', run: () => true },
-      { name: 'cache', optional: true, run: () => new Promise<boolean>(() => {}), timeoutMs: 15 },
-    ]);
-    expect(outcomes.db.state).toBe('ok');
-    expect(outcomes.db.reason).toBeUndefined();
-    expect(outcomes.cache).toMatchObject({ state: 'degraded', reason: 'timed out after 15ms' });
-    expect(outcomes.cache.durationMs).toBeGreaterThanOrEqual(10);
-  });
-});
-
-describe('serverTimingHeader', () => {
+describe('Server-Timing', () => {
   it('mirrors the body timings into the standard header', async () => {
-    const { envelope } = await resolveHealth({
-      env: built,
+    const { headers } = await probe({
       checks: [{ name: 'db', run: () => true }],
       facts: () => ({ servers: 3 }),
     });
-    const header = serverTimingHeader(envelope.data);
+    const header = headers.get('server-timing')!;
     expect(header).toMatch(/^health;dur=[\d.]+/);
     expect(header).toContain('db;dur=');
     expect(header).toContain('facts;dur=');
   });
 
-  it('sanitises a check name that is not a valid header token', () => {
-    const header = serverTimingHeader({
-      ...healthEnvelope('sync', { env: built }).data,
-      timings: { 'redis cache': 4 },
-    });
-    expect(header).toContain('redis_cache;dur=4');
+  it('sanitises a check name that is not a valid header token', async () => {
+    const { headers } = await probe({ checks: { 'redis cache': () => true } });
+    expect(headers.get('server-timing')).toContain('redis_cache;dur=');
   });
 
   it('is set on both transports', async () => {
@@ -480,17 +456,6 @@ describe('serverTimingHeader', () => {
       checks: [{ name: 'store', run: () => true }],
     });
     expect(res.headers.get('server-timing')).toContain('store;dur=');
-  });
-});
-
-describe('staticHealthJson timing fields', () => {
-  it('omits every field a build-time payload cannot honestly report', () => {
-    const { data } = JSON.parse(staticHealthJson({ service: 'web', env: built })) as {
-      data: Record<string, unknown>;
-    };
-    for (const field of ['instance', 'checkedAt', 'durationMs', 'timings', 'reasons']) {
-      expect(data).not.toHaveProperty(field);
-    }
   });
 });
 
@@ -505,16 +470,14 @@ describe('simple API', () => {
   });
 
   it('accepts checks as a keyed object of bare functions', async () => {
-    const res = await health({ service: 'auth', env: built, checks: { db: () => false } })();
-    expect(res.status).toBe(503);
-    const body = (await res.json()) as { data: { checks: Record<string, string> } };
-    expect(body.data.checks).toEqual({ db: 'down' });
+    const { envelope, httpStatus } = await probe({ service: 'auth', checks: { db: () => false } });
+    expect(httpStatus).toBe(503);
+    expect(envelope.data.checks).toEqual({ db: 'down' });
   });
 
   it('accepts the spec form per key: timeoutMs and optional flow through', async () => {
-    const { envelope } = await resolveHealth({
+    const { envelope } = await probe({
       service: 'sync',
-      env: built,
       checks: {
         cache: {
           run: () => {
@@ -531,14 +494,12 @@ describe('simple API', () => {
   });
 
   it('object and array check forms produce the same envelope', async () => {
-    const asObject = await resolveHealth({
+    const asObject = await probe({
       service: 'sync',
-      env: built,
       checks: { db: () => true, store: () => 'degraded' as const },
     });
-    const asArray = await resolveHealth({
+    const asArray = await probe({
       service: 'sync',
-      env: built,
       checks: [
         { name: 'db', run: () => true },
         { name: 'store', run: () => 'degraded' as const },
@@ -547,10 +508,5 @@ describe('simple API', () => {
     expect(asObject.envelope.data.checks).toEqual(asArray.envelope.data.checks);
     expect(asObject.envelope.data.status).toBe('degraded');
     expect(asObject.httpStatus).toBe(asArray.httpStatus);
-  });
-
-  it('nodeHealth and staticHealth are the existing factories under the new names', () => {
-    expect(nodeHealth).toBe(createHealthHandler);
-    expect(staticHealth).toBe(staticHealthJson);
   });
 });

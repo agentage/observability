@@ -46,7 +46,7 @@ export interface ClientErrorEvent {
   user_id?: string;
 }
 
-/** What emitters pass to `captureError`; extra keys are allowed and kept. */
+/** What emitters pass alongside `err`; extra keys are allowed and kept. */
 export type ErrorEventContext = Partial<Omit<ErrorEvent, 'err'>> & Record<string, unknown>;
 
 const SECRET_KEY = /token|secret|password|key/i;
