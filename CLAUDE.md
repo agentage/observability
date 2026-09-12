@@ -2,9 +2,11 @@
 
 Shared observability kit for the agentage estate. Rules below are load-bearing; read before changing anything.
 
-## Surface is frozen at 8
+## Surface is frozen at 9
 
-v1.0 targets **8 public exports**: `log`, `span`, `setUser`, `health`, plus the `bootstrap`, `next`, `browser` and root entries. Every consumer learns those and nothing else. Adding a 9th needs explicit justification in the PR body - "a service needed it" is not one; wire it behind an existing export instead.
+v1.0 targets **9 public exports**: `log`, `span`, `setUser`, `health`, plus the `bootstrap`, `next`, `browser`, `react` and root entries. Every consumer learns those and nothing else. Adding a 10th needs explicit justification in the PR body - "a service needed it" is not one; wire it behind an existing export instead.
+
+`react` is the one framework entry and stays a single component (`ErrorReporter`) over `browser`'s `observeBrowser`: React is an **optional peer**, `browser` itself stays framework-free.
 
 ## Internals are never exported for tests
 

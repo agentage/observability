@@ -1,5 +1,6 @@
 import type { Logger } from 'pino';
 import { redactArgs, type ClientErrorEvent } from '../error-fields.js';
+import { isTraceId } from '../traceparent.js';
 
 /** Structurally typed so the kit stays dependency-light - no express import. */
 export interface CollectorRequest {
@@ -58,6 +59,8 @@ const toEvent = (raw: unknown): ClientErrorEvent | undefined => {
     user_id: str(input.user_id),
   }) as Record<string, string | undefined>;
   const stack = str(err.stack);
+  // Untrusted body: only a real W3C trace id is logged, never arbitrary text.
+  const traceId = str(input.trace_id);
   return {
     event_id: safe.event_id ?? '',
     ts: safe.ts ?? new Date().toISOString(),
@@ -72,6 +75,7 @@ const toEvent = (raw: unknown): ClientErrorEvent | undefined => {
     ...(safe.url ? { url: safe.url } : {}),
     ...(safe.user_agent ? { user_agent: safe.user_agent } : {}),
     ...(safe.user_id ? { user_id: safe.user_id } : {}),
+    ...(traceId && isTraceId(traceId) ? { trace_id: traceId } : {}),
   };
 };
 

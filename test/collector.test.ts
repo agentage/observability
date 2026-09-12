@@ -74,6 +74,16 @@ describe('parseClientEvents', () => {
     );
   });
 
+  it('passes a browser trace id through and drops a junk one', () => {
+    const traceId = 'a3ce929d0e0e4736aab7ab4f8422d25c';
+    const [kept] = parseClientEvents({ events: [{ ...event('boom'), trace_id: traceId }] });
+    expect(kept.trace_id).toBe(traceId);
+    for (const junk of ['not-a-trace-id', '0'.repeat(32), 'A3CE929D0E0E4736AAB7AB4F8422D25C', 42]) {
+      const [parsed] = parseClientEvents({ events: [{ ...event('boom'), trace_id: junk }] });
+      expect(parsed.trace_id).toBeUndefined();
+    }
+  });
+
   it('truncates long messages but keeps a real stack', () => {
     const stack = `Error: x\n${'    at frame\n'.repeat(50)}`;
     const [parsed] = parseClientEvents({
@@ -105,6 +115,15 @@ describe('collectorHandler', () => {
     expect(line.error_code).toBe('TypeError');
     // The reporting app owns the line, not the collector that relayed it.
     expect(line.service).toBe('web');
+  });
+
+  it('logs the browser trace id top level so the error joins its server request', () => {
+    const out = capture();
+    const traceId = 'a3ce929d0e0e4736aab7ab4f8422d25c';
+    collectorHandler(createLogger({ service: 'collector', destination: out }), {
+      allowOrigins: ['*'],
+    })(post({ events: [{ ...event('boom'), trace_id: traceId }] }), res());
+    expect(out.lines()[0].trace_id).toBe(traceId);
   });
 
   it('rejects a foreign or missing origin with 403', () => {
