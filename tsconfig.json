@@ -15,8 +15,6 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "verbatimModuleSyntax": true
   },
   "include": ["src", "test"],
