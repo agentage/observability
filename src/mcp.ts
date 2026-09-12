@@ -1,8 +1,7 @@
 import { trace, SpanStatusCode, type Attributes } from '@opentelemetry/api';
 import type { Logger } from 'pino';
-import { stampUserType } from './client-type.js';
-import { toError } from './error-frame.js';
-import { redactArgs, errorCodeOf, fingerprintOf } from './error-event.js';
+import { stampUserId, stampUserType, userIdFromContext } from './internal/context.js';
+import { toError, redactArgs, errorCodeOf, fingerprintOf } from './internal/error-fields.js';
 
 /**
  * Stamp the ACTIVE (root HTTP) span as an MCP tool call: the kit renames it to
@@ -15,6 +14,7 @@ export function setMcpTool(tool: string, attributes?: Attributes): void {
   span.setAttribute('mcp.tool.name', tool);
   // Tool spans are the admin console's MCP lane; without this it regexes the UA.
   stampUserType(span);
+  stampUserId(span);
   if (attributes) span.setAttributes(attributes);
 }
 
@@ -63,7 +63,12 @@ export function wrapToolHandler<A, R extends ToolResult>(
   options: WrapToolOptions = {}
 ): (args: A, ...rest: unknown[]) => Promise<R> {
   return async (args, ...rest) => {
-    const ctx = { route: toolName, source: 'tool' as const, args: redactArgs(args) };
+    const ctx = {
+      route: toolName,
+      source: 'tool' as const,
+      args: redactArgs(args),
+      user_id: userIdFromContext(),
+    };
     try {
       const result = await handler(args, ...rest);
       if (result?.isError && options.captureIsError) {

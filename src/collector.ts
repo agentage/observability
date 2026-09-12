@@ -1,5 +1,5 @@
 import type { Logger } from 'pino';
-import { redactArgs, type ClientErrorEvent } from './error-event.js';
+import { redactArgs, type ClientErrorEvent } from './internal/error-fields.js';
 
 /** Structurally typed so the kit stays dependency-light - no express import. */
 export interface CollectorRequest {

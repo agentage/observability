@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { tracedFetch } from '../src/traced-fetch.js';
-import { errorFrameFields } from '../src/error-frame.js';
+import { errorFrameFields } from '../src/internal/error-fields.js';
 
 // `fetchTargetOf` is module-private since v1: the target is observable as the
 // `fetchTarget` stamped on a rejection, which is what the log line lifts.

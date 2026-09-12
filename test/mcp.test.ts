@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import { setMcpTool, markSpanError, wrapToolHandler } from '../src/mcp.js';
-import { createLogger } from '../src/logger.js';
-import { FetchSpanNameProcessor } from '../src/span-names.js';
+import { createLogger } from '../src/log.js';
+import { FetchSpanNameProcessor } from '../src/internal/span-names.js';
 import type { Span } from '@opentelemetry/sdk-trace-base';
 
 afterEach(() => {

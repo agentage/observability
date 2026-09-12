@@ -7,6 +7,30 @@ logs that link to their traces, and reports errors once instead of twice. Health
 its own with **zero configuration**; tracing stays completely inert until you point it at a
 collector.
 
+## The API (v1)
+
+Four names. `log` what happened, `span` what took time, `setUser` who it was for, `health`
+what the service reports about itself.
+
+```ts
+import { log, span, setUser, health } from '@agentage/observability';
+
+log.info({ route: '/login' }, 'user signed in'); // JSON to stderr, trace ids attached
+await span('store.read', () => store.read(id), { memory: id }); // one properly parented span
+setUser(session.user.id); // rides the request: log line, error events, active span
+export const GET = health(); // also at @agentage/observability/health
+```
+
+`log` is the logger - no construction call, service from `OTEL_SERVICE_NAME`, level from
+`LOG_LEVEL`, always stderr (stdout is the JSON-RPC channel of a stdio MCP server).
+`log.error(err)` records the exception on the active span and marks it failed.
+
+> Everything below this line still works and still ships, but it is **deprecated and
+> removed in 1.0 final**: `createLogger`, `createRequestLog`, `errorMiddleware`,
+> `onRequestError`, `collectorHandler`, `wrapToolHandler`, `setMcpTool`, `markSpanError`,
+> `setSpanAttributes`, `tracedFetch`, `withSpan` (renamed to `span`), `classifyClientType`,
+> `CLIENT_TYPE_HEADER`, `USER_TYPE_FIELD`, `UserType`.
+
 ## What is this?
 
 Running more than a couple of services, you end up writing the same three things again and
@@ -69,9 +93,8 @@ any rate limiter.
 ### Logs
 
 ```ts
-import { createLogger } from '@agentage/observability';
+import { log } from '@agentage/observability';
 
-const log = createLogger(); // service name comes from OTEL_SERVICE_NAME
 log.info({ route: '/login' }, 'user signed in');
 
 try {
@@ -83,15 +106,16 @@ try {
 
 `log.error(err)` and `log.fatal(err)` record the exception on the active trace span and
 mark it failed - there is no separate capture call to learn. Pass context alongside the
-error as `log.error({ err, userId })`; the message defaults to the error's. Stdio MCP
-servers must pass `stream: 'stderr'` - on stdio, stdout is the JSON-RPC channel.
+error as `log.error({ err, userId })`; the message defaults to the error's. Every line goes
+to stderr, so a stdio MCP server needs no option to keep stdout clean for JSON-RPC.
+(`createLogger(options?)` is deprecated: use `log`.)
 
 ### Request logs
 
 ```ts
-import { createRequestLog, createLogger } from '@agentage/observability';
+import { createRequestLog, log } from '@agentage/observability';
 
-app.use(createRequestLog(createLogger())); // before the routers, so 404s are counted too
+app.use(createRequestLog(log)); // before the routers, so 404s are counted too
 ```
 
 One line per finished request: `kind: 'http'`, `method`, `path`, `route` (templated),
@@ -304,8 +328,13 @@ without parsing the body.
 |                                     | `createHealthHandler(options?)`                    | Express/Connect handler                              |
 |                                     | `healthResponse(options?)`                         | Next route-handler body returning a `Response`       |
 |                                     | `healthEnvelope(service?, options?)`               | The envelope itself, if you build your own transport |
-| `@agentage/observability`           | `createLogger(options?)`                           | pino preset: trace-linked lines, `log.error` capture |
-|                                     | `withSpan(name, fn, attrs?)`                       | Add depth deliberately; no-op without an SDK         |
+| `@agentage/observability`           | `log`                                              | The logger: JSON to stderr, trace-linked lines       |
+|                                     | `span(name, fn, attrs?)`                           | Add depth deliberately; no-op without an SDK         |
+|                                     | `setUser(id)`                                      | Who the request is for; rides the OTel context       |
+|                                     | `health(options?)`                                 | Re-exported for Node, same handler as `/health`      |
+|                                     | _deprecated below - removed in 1.0 final_          |                                                      |
+|                                     | `createLogger(options?)`                           | pino preset: trace-linked lines, `log.error` capture |
+|                                     | `withSpan(name, fn, attrs?)`                       | Renamed to `span`                                    |
 |                                     | `setMcpTool`, `markSpanError`, `setSpanAttributes` | MCP tool-call span semantics                         |
 |                                     | `createRequestLog(log, options?)`                  | Express middleware: one wide event per request       |
 |                                     | `classifyClientType(input)`                        | `user`/`test`/`service`/`bot` from header, UA, path  |

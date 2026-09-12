@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
-import { withSpan } from '../src/with-span.js';
+import { span, withSpan } from '../src/span.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -10,6 +10,7 @@ function fakeTracer() {
   const span = {
     recordException: vi.fn(),
     setStatus: vi.fn(),
+    setAttribute: vi.fn(),
     end: vi.fn(),
   };
   const tracer = {
@@ -19,31 +20,35 @@ function fakeTracer() {
   return { span, tracer };
 }
 
-describe('withSpan', () => {
+describe('span', () => {
   it('returns the value and ends the span', async () => {
-    const { span, tracer } = fakeTracer();
-    await expect(withSpan('store.read', () => 42, { memory: 'm1' })).resolves.toBe(42);
+    const { span: started, tracer } = fakeTracer();
+    await expect(span('store.read', () => 42, { memory: 'm1' })).resolves.toBe(42);
     expect(tracer.startActiveSpan).toHaveBeenCalledWith(
       'store.read',
       { attributes: { memory: 'm1' } },
       expect.any(Function)
     );
-    expect(span.end).toHaveBeenCalledOnce();
+    expect(started.end).toHaveBeenCalledOnce();
   });
 
   it('records the exception, flags ERROR, rethrows, still ends', async () => {
-    const { span } = fakeTracer();
+    const { span: started } = fakeTracer();
     await expect(
-      withSpan('store.write', () => {
+      span('store.write', () => {
         throw new Error('kaput');
       })
     ).rejects.toThrow('kaput');
-    expect(span.recordException).toHaveBeenCalledOnce();
-    expect(span.setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.ERROR });
-    expect(span.end).toHaveBeenCalledOnce();
+    expect(started.recordException).toHaveBeenCalledOnce();
+    expect(started.setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.ERROR });
+    expect(started.end).toHaveBeenCalledOnce();
   });
 
   it('is safe with the noop tracer (no SDK)', async () => {
-    await expect(withSpan('noop', async () => 'ok')).resolves.toBe('ok');
+    await expect(span('noop', async () => 'ok')).resolves.toBe('ok');
+  });
+
+  it('still answers to its old name', () => {
+    expect(withSpan).toBe(span);
   });
 });

@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { context as otelContext, trace } from '@opentelemetry/api';
 import { useStackContextManager } from './stack-context-manager.js';
+import { CLIENT_TYPE_HEADER, classifyClientType } from '../src/internal/classify.js';
 import {
-  CLIENT_TYPE_HEADER,
-  classifyClientType,
   contextWithUserType,
   stampUserType,
   userTypeFromContext,
-} from '../src/client-type.js';
+} from '../src/internal/context.js';
 
 afterEach(() => {
   otelContext.disable();

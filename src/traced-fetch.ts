@@ -1,4 +1,4 @@
-import { routeFromUrl } from './span-names.js';
+import { routeFromUrl } from './internal/span-names.js';
 
 type FetchArgs = Parameters<typeof fetch>;
 type FetchResponse = Awaited<ReturnType<typeof fetch>>;

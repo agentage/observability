@@ -1,7 +1,7 @@
 import { registerOTel } from '@vercel/otel';
-import { resolveTracingConfig } from './config.js';
-import { FetchSpanNameProcessor } from './span-names.js';
-import { samplerFromEnv } from './noise-sampler.js';
+import { resolveTracingConfig } from './internal/config.js';
+import { FetchSpanNameProcessor } from './internal/span-names.js';
+import { samplerFromEnv } from './internal/sampler.js';
 
 // Same instrumentation.ts file exports both hooks, so it ships from this subpath too.
 export {

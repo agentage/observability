@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createLogger } from '../src/logger.js';
+import { createLogger } from '../src/log.js';
 import { errorMiddleware, onRequestError, type ErrorResponse } from '../src/error-emitters.js';
-import { redactArgs, errorCodeOf, fingerprintOf } from '../src/error-event.js';
+import { redactArgs, errorCodeOf, fingerprintOf } from '../src/internal/error-fields.js';
 
 function capture(): { lines: () => Record<string, unknown>[]; write: (msg: string) => void } {
   const raw: string[] = [];
