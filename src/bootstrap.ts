@@ -5,6 +5,7 @@ import { resolveTracingConfig } from './internal/config.js';
 import { installCrashCapture } from './internal/patch/crash.js';
 import { installExpressPatch } from './internal/patch/express.js';
 import { installFetchPatch } from './internal/patch/fetch.js';
+import { installMcpPatch } from './internal/patch/mcp.js';
 
 const config = resolveTracingConfig(process.env);
 
@@ -19,4 +20,5 @@ if (config) {
 // its /health, the error envelope and a logged crash - so these run either way.
 installFetchPatch();
 installExpressPatch();
+installMcpPatch();
 installCrashCapture();

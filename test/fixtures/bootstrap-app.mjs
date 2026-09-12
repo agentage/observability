@@ -3,6 +3,10 @@
 // to `app.listen()` through the module hook - the one path unit tests cannot take.
 import assert from 'node:assert/strict';
 import express from 'express';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 
 const app = express();
 
@@ -33,4 +37,38 @@ const failed = await fetch('http://127.0.0.1:1/nothing').catch((err) => err);
 assert.equal(failed.fetchTarget, 'GET 127.0.0.1:1/nothing', 'the global fetch is enriched');
 
 server.close();
+
+// The MCP SDK, imported like any service imports it: the tool below is
+// registered with zero observability code, so a `kind:'tool'` line proves the
+// module hook reached the SDK.
+const mcp = new McpServer({ name: 'bootstrap-smoke', version: '0.0.0' });
+mcp.registerTool('memory__write', { inputSchema: { path: z.string(), body: z.string() } }, () => ({
+  content: [{ type: 'text', text: 'written' }],
+}));
+const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+const client = new Client({ name: 'bootstrap-smoke-client', version: '0.0.0' });
+await Promise.all([client.connect(clientTransport), mcp.connect(serverTransport)]);
+
+const lines = [];
+const writeStderr = process.stderr.write.bind(process.stderr);
+process.stderr.write = (chunk, ...rest) => {
+  for (const raw of String(chunk).split('\n')) {
+    try {
+      lines.push(JSON.parse(raw));
+    } catch {
+      // Not one of ours.
+    }
+  }
+  return writeStderr(chunk, ...rest);
+};
+await client.callTool({ name: 'memory__write', arguments: { path: 'a.md', body: 'hello' } });
+process.stderr.write = writeStderr;
+await client.close();
+
+const toolLine = lines.find((line) => line.kind === 'tool');
+assert.ok(toolLine, 'the MCP tool call should emit one kind:tool line');
+assert.equal(toolLine.tool, 'memory__write');
+assert.equal(toolLine.status, 'ok');
+assert.equal(typeof toolLine.duration_ms, 'number');
+
 console.log('bootstrap smoke ok');

@@ -2,6 +2,7 @@ import { trace, SpanStatusCode, type Attributes } from '@opentelemetry/api';
 import type { Logger } from 'pino';
 import { stampUserId, stampUserType, userIdFromContext } from './internal/context.js';
 import { toError, redactArgs, errorCodeOf, fingerprintOf } from './internal/error-fields.js';
+import { markToolWrapped } from './internal/tool-guard.js';
 
 /**
  * Stamp the ACTIVE (root HTTP) span as an MCP tool call: the kit renames it to
@@ -55,6 +56,9 @@ export interface WrapToolOptions {
  * Wrap an MCP tool handler so a thrown error emits the standard `ErrorEvent`.
  * Set `captureIsError` to also capture `isError` results, which travel over
  * HTTP 200 and are otherwise invisible. Arguments are logged redacted.
+ *
+ * @deprecated The bootstrap instruments every MCP tool automatically; removed in
+ * 1.0 final. Handlers wrapped here are marked, so the patch leaves them alone.
  */
 export function wrapToolHandler<A, R extends ToolResult>(
   log: Logger,
@@ -62,7 +66,7 @@ export function wrapToolHandler<A, R extends ToolResult>(
   handler: ToolHandler<A, R>,
   options: WrapToolOptions = {}
 ): (args: A, ...rest: unknown[]) => Promise<R> {
-  return async (args, ...rest) => {
+  const wrapped = async (args: A, ...rest: unknown[]): Promise<R> => {
     const ctx = {
       route: toolName,
       source: 'tool' as const,
@@ -87,4 +91,5 @@ export function wrapToolHandler<A, R extends ToolResult>(
       throw err;
     }
   };
+  return markToolWrapped(wrapped);
 }

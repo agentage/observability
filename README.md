@@ -48,6 +48,24 @@ outbound call, and logs an `uncaughtException`/`unhandledRejection` as `fatal` b
 process dies. Each piece has an off switch (see [Configuration](#configuration)), and
 mounting is idempotent - a service that wires a piece by hand keeps its own.
 
+## Wired for you (MCP tools)
+
+An MCP server that preloads the bootstrap gets per-tool observability with **no code at
+all**, whether it speaks HTTP or stdio: every tool registered through `McpServer`
+(`registerTool`/`tool`) or a low-level `Server`'s `tools/call` handler is wrapped exactly
+once, and each call gets a span named after the tool (the HTTP root span is renamed at
+export; a stdio server's call becomes the root itself), `mcp.tool.args` with content-bearing
+fields reduced to a `<N chars>` marker and credential-looking keys redacted, `mcp.results.count`
+and `mcp.response.bytes` on the way out, an `ErrorEvent` when the handler throws, and one
+`kind:'tool'` wide-event line per call with `tool`, `duration_ms`, `status`, `user_id` and
+`user_type`. An `isError` result marks the span failed but raises no `ErrorEvent` - those are
+usually expected refusals - unless `OBS_MCP_CAPTURE_ISERROR=on`. For a stdio server, the
+whole wiring is the shebang:
+
+```
+#!/usr/bin/env -S node --import @agentage/observability/bootstrap
+```
+
 > Everything below this line still works and still ships, but it is **deprecated and
 > removed in 1.0 final**: `createLogger`, `createRequestLog`, `errorMiddleware`,
 > `onRequestError`, `collectorHandler`, `wrapToolHandler`, `setMcpTool`, `markSpanError`,
@@ -423,6 +441,10 @@ What the bootstrap wires, and how to turn a piece off. Each takes the literal `o
 | `OBS_COLLECTOR`     | No `/api/client-errors`, even with origins configured.                 |
 | `OBS_FETCH_PATCH`   | The global `fetch` is left alone (no call site or target on failures). |
 | `OBS_CRASH_CAPTURE` | No `uncaughtException`/`unhandledRejection` line; Node's default only. |
+| `OBS_MCP_PATCH`     | MCP tools are not instrumented; wrap handlers yourself.                |
+
+One more, and it takes the literal `on`: `OBS_MCP_CAPTURE_ISERROR` also raises an
+`ErrorEvent` for a tool answering `isError` (span + wide event report it either way).
 
 `COMMIT_SHA` and `BUILD_TIME` must be redeclared as `ARG` **and promoted to `ENV` in the
 runner stage** - ARGs do not cross Docker stage boundaries, and without that your endpoint
