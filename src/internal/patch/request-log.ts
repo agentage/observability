@@ -127,9 +127,9 @@ const matchedRouteOf = (req: RequestLogRequest, originalPath: string): string | 
 
 /**
  * One structured line per finished request (method/path/route/status/duration) -
- * the estate log agent tails container stdout, so no in-process shipping.
+ * the estate log agent tails the container's streams, so no in-process shipping.
  * Register BEFORE the routers so 404s and rate-limited requests are counted too.
- * `trace_id`/`span_id` are injected by the `createLogger` mixin.
+ * `trace_id`/`span_id` are injected by the logger's own mixin.
  */
 export function createRequestLog(
   log: Logger,

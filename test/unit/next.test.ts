@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 const registerOTel = vi.hoisted(() => vi.fn());
 vi.mock('@vercel/otel', () => ({ registerOTel }));
 
-import { register } from '../src/next.js';
+import { register } from '../../src/next.js';
 
 afterEach(() => {
   registerOTel.mockClear();

@@ -22,7 +22,7 @@ export interface ObserveBrowserOptions {
   propagate?: boolean;
 }
 
-/** @deprecated Use `ObserveBrowserOptions`; removed in 1.0 final. */
+/** @deprecated Use `ObserveBrowserOptions`; removed in the next major. */
 export type ErrorReporterOptions = ObserveBrowserOptions;
 
 /** Minimal local DOM surface - the package compiles for Node, so `lib: dom` is not on. */
@@ -398,7 +398,7 @@ export function observeBrowser(options: ObserveBrowserOptions): () => void {
   };
 }
 
-/** @deprecated Use `observeBrowser`; removed in 1.0 final. */
+/** @deprecated Use `observeBrowser`; removed in the next major. */
 export function installErrorReporter(options: ErrorReporterOptions): () => void {
   return observeBrowser(options);
 }

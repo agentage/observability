@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { getTraceId, installErrorReporter, observeBrowser } from '../src/browser.js';
+import { getTraceId, installErrorReporter, observeBrowser } from '../../src/browser.js';
 
 type Listener = (event: unknown) => void;
 

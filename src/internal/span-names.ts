@@ -88,7 +88,7 @@ export class FetchSpanNameProcessor implements SpanProcessor {
       m.name = m.name.slice(4);
     }
     // MCP hosts: the ROOT server span is named after the tool (owner directive) -
-    // services stamp mcp.tool.name via setMcpTool(); the HTTP instrumentation's
+    // the MCP patch stamps mcp.tool.name at dispatch; the HTTP instrumentation's
     // own end-rename (route-based) ran already, so this is the final say.
     const tool = m.attributes['mcp.tool.name'];
     if (typeof tool === 'string' && tool !== '' && m.kind === SpanKind.SERVER) {

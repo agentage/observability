@@ -7,7 +7,7 @@ import {
   type HealthEnvelope,
   type HealthResponseLike,
   type HealthSourceOptions,
-} from '../src/health.js';
+} from '../../src/health.js';
 
 const built = {
   OTEL_SERVICE_NAME: 'memory-mcp',

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { symbols } from 'pino';
-import { createLogger } from '../src/log.js';
+import { createLogger } from '../../src/log.js';
 
 // The API's default context manager is a no-op, so tests stub the active span
 // instead of registering a real AsyncLocalStorage manager.
@@ -274,7 +274,7 @@ describe('the log singleton', () => {
     vi.resetModules();
     if (service === undefined) vi.stubEnv('OTEL_SERVICE_NAME', '');
     else vi.stubEnv('OTEL_SERVICE_NAME', service);
-    return import('../src/log.js');
+    return import('../../src/log.js');
   };
 
   const stderr = (): { lines: () => Record<string, unknown>[] } => {
@@ -296,7 +296,7 @@ describe('the log singleton', () => {
   it('reads OTEL_SERVICE_NAME at first use, not at import', async () => {
     vi.resetModules();
     vi.stubEnv('OTEL_SERVICE_NAME', '');
-    const { log } = await import('../src/log.js');
+    const { log } = await import('../../src/log.js');
     // The env a service loads AFTER importing the kit still wins.
     vi.stubEnv('OTEL_SERVICE_NAME', 'agentage-web');
     const out = stderr();

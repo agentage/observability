@@ -1,15 +1,18 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { context as otelContext, trace } from '@opentelemetry/api';
 import type { Logger } from 'pino';
-import { setUser } from '../src/user.js';
-import { span } from '../src/span.js';
-import { createRequestLog, type RequestLogRequest } from '../src/internal/patch/request-log.js';
+import { setUser } from '../../src/user.js';
+import { span } from '../../src/span.js';
+import { createRequestLog, type RequestLogRequest } from '../../src/internal/patch/request-log.js';
 import {
   errorMiddleware,
   onRequestError,
   type ErrorResponse,
-} from '../src/internal/patch/error-emitters.js';
-import { useAsyncContextManager, useStackContextManager } from './stack-context-manager.js';
+} from '../../src/internal/patch/error-emitters.js';
+import {
+  useAsyncContextManager,
+  useStackContextManager,
+} from '../helpers/stack-context-manager.js';
 
 afterEach(() => {
   otelContext.disable();

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { routeFromUrl, FetchSpanNameProcessor } from '../src/internal/span-names.js';
+import { routeFromUrl, FetchSpanNameProcessor } from '../../src/internal/span-names.js';
 import type { Span } from '@opentelemetry/sdk-trace-base';
 import type { Context } from '@opentelemetry/api';
 
@@ -92,7 +92,7 @@ describe('RSC fold', () => {
 
 describe('readableRoute', () => {
   it('turns a stringified express RegExp back into a route', async () => {
-    const { readableRoute } = await import('../src/internal/span-names.js');
+    const { readableRoute } = await import('../../src/internal/span-names.js');
     expect(readableRoute('/v1/^\\/memories\\/([^/]+)\\/notes\\/(.+)$/')).toBe(
       '/v1/memories/:param/notes/:path'
     );
@@ -102,7 +102,7 @@ describe('readableRoute', () => {
   });
 
   it('leaves an ordinary route untouched', async () => {
-    const { readableRoute } = await import('../src/internal/span-names.js');
+    const { readableRoute } = await import('../../src/internal/span-names.js');
     expect(readableRoute('/api/memories/:id/folders')).toBe('/api/memories/:id/folders');
     expect(readableRoute('/browse')).toBe('/browse');
   });

@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace } from '@opentelemetry/api';
-import { createLogger } from '../src/log.js';
+import { createLogger } from '../../src/log.js';
 import {
   errorMiddleware,
   onRequestError,
   type ErrorResponse,
-} from '../src/internal/patch/error-emitters.js';
-import { redactArgs, errorCodeOf, fingerprintOf } from '../src/internal/error-fields.js';
+} from '../../src/internal/patch/error-emitters.js';
+import { redactArgs, errorCodeOf, fingerprintOf } from '../../src/internal/error-fields.js';
 
 const SPAN_CONTEXT = {
   traceId: 'a3ce929d0e0e4736aab7ab4f8422d25c',

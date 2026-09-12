@@ -104,7 +104,7 @@ interface SystemErrorFields {
   syscall?: unknown;
 }
 
-/** The non-enumerable fields `tracedFetch` attaches to a rejected fetch error. */
+/** The non-enumerable fields the patched global `fetch` attaches to a rejection. */
 interface WithCallSite {
   callSite?: unknown;
   fetchTarget?: unknown;
@@ -192,7 +192,7 @@ const frameFromStack = (stack: string | undefined): string | undefined => {
 
 /**
  * Top in-app stack frame - the error's own stack first, then its causes, then the
- * `callSite` `tracedFetch` attached (an async fetch rejection has no app frame).
+ * `callSite` the patched `fetch` attached (an async fetch rejection has no app frame).
  */
 function frameOf(err: unknown): string | undefined {
   if (!isError(err)) return undefined;
@@ -207,7 +207,7 @@ function frameOf(err: unknown): string | undefined {
 }
 
 /**
- * The `fetchTarget` `tracedFetch` stamped, from the error itself or any cause -
+ * The `fetchTarget` the patched `fetch` stamped, from the error itself or any cause -
  * the throw site is usually a wrapper several levels above the failed fetch.
  */
 function targetOf(err: unknown): string | undefined {

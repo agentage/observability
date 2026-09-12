@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
-import { span, withSpan } from '../src/span.js';
+import { span, withSpan } from '../../src/span.js';
 
 afterEach(() => {
   vi.restoreAllMocks();

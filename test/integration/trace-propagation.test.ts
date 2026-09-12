@@ -7,8 +7,8 @@ import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import type { ReadableSpan } from '@opentelemetry/sdk-trace-base';
-import { observeBrowser } from '../src/browser.js';
-import { samplerFromTraceEnv } from '../src/internal/tracer.js';
+import { observeBrowser } from '../../src/browser.js';
+import { samplerFromTraceEnv } from '../../src/internal/tracer.js';
 
 const exporter = new InMemorySpanExporter();
 const globals = globalThis as unknown as Record<string, unknown>;

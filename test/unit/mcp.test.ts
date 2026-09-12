@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
-import { setMcpTool, markSpanError, wrapToolHandler } from '../src/mcp.js';
-import { createLogger } from '../src/log.js';
-import { FetchSpanNameProcessor } from '../src/internal/span-names.js';
+import { setMcpTool, markSpanError, wrapToolHandler } from '../../src/mcp.js';
+import { createLogger } from '../../src/log.js';
+import { FetchSpanNameProcessor } from '../../src/internal/span-names.js';
 import type { Span } from '@opentelemetry/sdk-trace-base';
 
 afterEach(() => {
@@ -61,7 +61,7 @@ describe('MCP root rename at export', () => {
 
 describe('setSpanAttributes', () => {
   it('merges attributes onto the active span and no-ops without one', async () => {
-    const { setSpanAttributes } = await import('../src/mcp.js');
+    const { setSpanAttributes } = await import('../../src/mcp.js');
     const setAttributes = vi.fn();
     vi.spyOn(trace, 'getActiveSpan').mockReturnValue({ setAttributes } as never);
     setSpanAttributes({ 'mcp.results.count': 7 });

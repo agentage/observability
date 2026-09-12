@@ -4,7 +4,7 @@ import { errorFrameFields } from './internal/error-fields.js';
 
 export type { Logger };
 
-/** @deprecated Use the `log` singleton; removed in 1.0 final. */
+/** @deprecated Use the `log` singleton; removed in the next major. */
 export interface LoggerOptions {
   /** service.name; defaults to OTEL_SERVICE_NAME, then the deliberately loud 'unknown'. */
   service?: string;
@@ -55,7 +55,7 @@ const enrich = (arg: unknown, err: Error): Record<string, unknown> => {
  * in-app frame, fetch target, category and system code onto the line, and record
  * the exception on that span - no separate capture call.
  *
- * @deprecated Import the `log` singleton instead; removed in 1.0 final.
+ * @deprecated Import the `log` singleton instead; removed in the next major.
  */
 export function createLogger(opts: LoggerOptions = {}): Logger {
   const logger = pino(

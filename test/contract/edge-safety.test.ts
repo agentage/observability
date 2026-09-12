@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 // AST, not every analyzer that might read this package does - so the forbidden names
 // must not appear at all, even in prose explaining why they are forbidden. The first
 // run of this test caught exactly that: the comment documenting the fix.
-const SOURCE = readFileSync(fileURLToPath(new URL('../src/health.ts', import.meta.url)), 'utf8');
+const SOURCE = readFileSync(fileURLToPath(new URL('../../src/health.ts', import.meta.url)), 'utf8');
 
 // `process.env` is deliberately absent: Next supports it in edge bundles (it inlines
 // them), and the envelope's whole provenance story is built on it.
@@ -58,7 +58,7 @@ describe('health.ts stays edge-safe', () => {
   });
 
   it('ships a dist free of them too, when one has been built', async () => {
-    const dist = new URL('../dist/health.js', import.meta.url);
+    const dist = new URL('../../dist/health.js', import.meta.url);
     let built: string;
     try {
       built = readFileSync(fileURLToPath(dist), 'utf8');
@@ -69,7 +69,7 @@ describe('health.ts stays edge-safe', () => {
   });
 
   it('still reports a plausible process start after the swap', async () => {
-    const { healthEnvelope } = await import('../src/health.js');
+    const { healthEnvelope } = await import('../../src/health.js');
     const { startedAt, uptimeSeconds } = healthEnvelope('edge-check').data;
     const drift = Math.abs(Date.parse(startedAt) - (Date.now() - process.uptime() * 1000));
     expect(drift).toBeLessThan(1000);
