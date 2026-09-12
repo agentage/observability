@@ -1,7 +1,7 @@
 import { trace, SpanStatusCode, type Attributes } from '@opentelemetry/api';
 import type { Logger } from 'pino';
 import { stampUserType } from './client-type.js';
-import { captureError } from './errors.js';
+import { toError } from './error-frame.js';
 import { redactArgs, errorCodeOf, fingerprintOf } from './error-event.js';
 
 /**
@@ -69,11 +69,12 @@ export function wrapToolHandler<A, R extends ToolResult>(
       if (result?.isError && options.captureIsError) {
         const err = new Error(errorText(result));
         markSpanError(err.message);
-        captureError(log, err, { ...ctx, error_code: errorCodeOf(err) });
+        log.error({ err, ...ctx, error_code: errorCodeOf(err) });
       }
       return result;
     } catch (err) {
-      captureError(log, err, {
+      log.error({
+        err: toError(err),
         ...ctx,
         error_code: errorCodeOf(err),
         fingerprint: fingerprintOf(err),

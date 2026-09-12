@@ -1,40 +1,18 @@
-export { resolveTracingConfig, type TracingConfig } from './config.js';
-export { createLogger, logger, type Logger, type LoggerOptions } from './logger.js';
-export { captureError } from './errors.js';
+export { createLogger, type Logger, type LoggerOptions } from './logger.js';
 export {
-  redactArgs,
-  errorCodeOf,
-  fingerprintOf,
   type ClientErrorEvent,
   type ErrorEvent,
-  type ErrorEventContext,
   type ErrorSource,
   type SerializedError,
 } from './error-event.js';
-export {
-  categoryOf,
-  causeChainOf,
-  causeCodeOf,
-  causeSummaryOf,
-  errorFrameFields,
-  frameOf,
-  rootCauseOf,
-  targetOf,
-  type ErrorCategory,
-  type ErrorFrameFields,
-} from './error-frame.js';
 export {
   CLIENT_TYPE_HEADER,
   USER_TYPE_FIELD,
   UserType,
   classifyClientType,
-  contextWithUserType,
-  ipInRanges,
-  stampUserType,
-  userTypeFromContext,
   type ClientTypeInput,
 } from './client-type.js';
-export { tracedFetch, fetchTargetOf } from './traced-fetch.js';
+export { tracedFetch } from './traced-fetch.js';
 export {
   errorMiddleware,
   onRequestError,
@@ -48,7 +26,6 @@ export {
 } from './error-emitters.js';
 export {
   collectorHandler,
-  parseClientEvents,
   type CollectorHandler,
   type CollectorOptions,
   type CollectorRequest,
@@ -56,20 +33,11 @@ export {
 } from './collector.js';
 export {
   createRequestLog,
-  parseIpRanges,
-  UNMATCHED_ROUTE,
   type RequestLogMiddleware,
   type RequestLogOptions,
   type RequestLogRequest,
   type RequestLogResponse,
 } from './request-log.js';
-export {
-  routeFromUrl,
-  readableRoute,
-  normalizeFetchSpanName,
-  FetchSpanNameProcessor,
-} from './span-names.js';
-export { NextNoiseSampler, samplerFromEnv } from './noise-sampler.js';
 export { withSpan } from './with-span.js';
 export {
   setMcpTool,

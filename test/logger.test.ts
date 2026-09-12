@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { symbols } from 'pino';
-import { createLogger, logger } from '../src/logger.js';
+import { createLogger } from '../src/logger.js';
 
 // The API's default context manager is a no-op, so tests stub the active span
 // instead of registering a real AsyncLocalStorage manager.
@@ -66,7 +66,7 @@ describe('createLogger', () => {
   });
 });
 
-describe('simple API', () => {
+describe('error capture', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -87,21 +87,17 @@ describe('simple API', () => {
     return { span, recordException };
   };
 
-  it('logger is createLogger under the health()-style name', () => {
-    expect(logger).toBe(createLogger);
-  });
-
-  it('logger() with no options takes the service from OTEL_SERVICE_NAME', () => {
+  it('createLogger() with no options takes the service from OTEL_SERVICE_NAME', () => {
     vi.stubEnv('OTEL_SERVICE_NAME', 'agentage-auth');
     const out = capture();
-    logger({ destination: out }).info('hi');
+    createLogger({ destination: out }).info('hi');
     expect(out.lines()[0].service).toBe('agentage-auth');
   });
 
   it('falls back to the deliberately loud unknown', () => {
     vi.stubEnv('OTEL_SERVICE_NAME', '');
     const out = capture();
-    logger({ destination: out }).info('hi');
+    createLogger({ destination: out }).info('hi');
     expect(out.lines()[0].service).toBe('unknown');
   });
 
@@ -109,7 +105,7 @@ describe('simple API', () => {
     const { span, recordException } = stubSpan();
     const out = capture();
     const err = new Error('kaput');
-    logger({ service: 'x', destination: out }).error(err);
+    createLogger({ service: 'x', destination: out }).error(err);
     expect(recordException).toHaveBeenCalledWith(err);
     expect(span.setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.ERROR, message: 'kaput' });
     const [line] = out.lines();
@@ -121,7 +117,7 @@ describe('simple API', () => {
     const { recordException } = stubSpan();
     const out = capture();
     const err = new Error('db down');
-    logger({ service: 'x', destination: out }).error({ err, userId: 'u1' });
+    createLogger({ service: 'x', destination: out }).error({ err, userId: 'u1' });
     expect(recordException).toHaveBeenCalledWith(err);
     const [line] = out.lines();
     expect(line.msg).toBe('db down');
@@ -131,7 +127,7 @@ describe('simple API', () => {
   it('log.error with a plain message never touches the span', () => {
     const { recordException } = stubSpan();
     const out = capture();
-    logger({ service: 'x', destination: out }).error('rate limit hit');
+    createLogger({ service: 'x', destination: out }).error('rate limit hit');
     expect(recordException).not.toHaveBeenCalled();
     expect(out.lines()[0].msg).toBe('rate limit hit');
   });
@@ -139,21 +135,127 @@ describe('simple API', () => {
   it('below error level the span is left alone', () => {
     const { recordException } = stubSpan();
     const out = capture();
-    logger({ service: 'x', destination: out }).warn(new Error('meh'));
+    createLogger({ service: 'x', destination: out }).warn(new Error('meh'));
     expect(recordException).not.toHaveBeenCalled();
   });
 
   it('log.fatal(err) captures like error', () => {
     const { recordException } = stubSpan();
     const out = capture();
-    logger({ service: 'x', destination: out }).fatal(new Error('dead'));
+    createLogger({ service: 'x', destination: out }).fatal(new Error('dead'));
     expect(recordException).toHaveBeenCalledOnce();
   });
 
   it('is safe with no active span', () => {
     const out = capture();
-    expect(() => logger({ service: 'x', destination: out }).error(new Error('solo'))).not.toThrow();
+    expect(() =>
+      createLogger({ service: 'x', destination: out }).error(new Error('solo'))
+    ).not.toThrow();
     expect(out.lines()[0].msg).toBe('solo');
+  });
+
+  it('wraps a non-Error throwable only when the caller coerces it', () => {
+    const out = capture();
+    createLogger({ service: 'x', destination: out }).error('string failure');
+    const [line] = out.lines();
+    expect(line.msg).toBe('string failure');
+    expect(line.err).toBeUndefined();
+  });
+});
+
+// `captureError(log, err, ctx)` was deleted for v1: this hook lifts the same fields,
+// so these are its old cases asserted through `log.error`.
+describe('error field lifting', () => {
+  const wrappedDnsFailure = (): Error => {
+    const dns = Object.assign(new Error('getaddrinfo ENOTFOUND backend'), { code: 'ENOTFOUND' });
+    dns.stack = 'Error: getaddrinfo ENOTFOUND backend\n    at gai (/app/src/dns.ts:7:3)';
+    const err = new TypeError('fetch failed', { cause: dns });
+    err.stack = 'TypeError: fetch failed\n    at f (/app/node_modules/undici/index.js:1:1)';
+    Object.defineProperty(err, 'fetchTarget', { value: 'GET backend/v1/ping', configurable: true });
+    return err;
+  };
+
+  const withoutNoise = (line: Record<string, unknown>): Record<string, unknown> => {
+    const rest = { ...line };
+    delete rest.level;
+    delete rest.time;
+    delete rest.err;
+    return rest;
+  };
+
+  it('emits the enriched line captureError produced, field for field', () => {
+    const out = capture();
+    createLogger({ service: 'x', destination: out }).error({
+      err: wrappedDnsFailure(),
+      source: 'server',
+      error_code: 'TypeError',
+      user_id: 'u1',
+    });
+    const [line] = out.lines();
+    expect(withoutNoise(line)).toEqual({
+      service: 'x',
+      cause: 'Error: getaddrinfo ENOTFOUND backend',
+      frame: 'src/dns.ts:7:3 in gai',
+      target: 'GET backend/v1/ping',
+      category: 'connectivity',
+      error_code: 'ENOTFOUND',
+      source: 'server',
+      user_id: 'u1',
+      msg: 'fetch failed',
+    });
+    expect(line.err).toMatchObject({ type: 'TypeError' });
+  });
+
+  it('lifts the same fields from a bare error as from { err, ...ctx }', () => {
+    const bare = capture();
+    const keyed = capture();
+    createLogger({ service: 'x', destination: bare }).error(wrappedDnsFailure());
+    createLogger({ service: 'x', destination: keyed }).error({ err: wrappedDnsFailure() });
+    expect(withoutNoise(bare.lines()[0])).toEqual(withoutNoise(keyed.lines()[0]));
+    expect(withoutNoise(bare.lines()[0])).toMatchObject({
+      cause: 'Error: getaddrinfo ENOTFOUND backend',
+      error_code: 'ENOTFOUND',
+      category: 'connectivity',
+      msg: 'fetch failed',
+    });
+  });
+
+  it('keeps an application error code over the cause code', () => {
+    const out = capture();
+    const err = new Error('nope', {
+      cause: Object.assign(new Error('dns'), { code: 'ENOTFOUND' }),
+    });
+    createLogger({ service: 'x', destination: out }).error({ err, error_code: 'E_QUOTA' });
+    expect(out.lines()[0].error_code).toBe('E_QUOTA');
+  });
+
+  it('carries the stack and the caller context through', () => {
+    const out = capture();
+    createLogger({ service: 'x', destination: out }).error({
+      err: new Error('kaput'),
+      userId: 'u1',
+    });
+    const [line] = out.lines();
+    expect(line.msg).toBe('kaput');
+    expect(line.userId).toBe('u1');
+    expect((line.err as { stack?: string }).stack).toContain('kaput');
+  });
+
+  it('always carries a category, even when nothing else can be derived', () => {
+    const out = capture();
+    const err = new Error('plain');
+    err.stack = 'Error: plain\n    at x (node:internal/x:1:1)';
+    createLogger({ service: 'x', destination: out }).error(err);
+    const [line] = out.lines();
+    expect(line.category).toBe('logic');
+    expect(line).not.toHaveProperty('cause');
+    expect(line).not.toHaveProperty('frame');
+  });
+
+  it('leaves a below-error line unenriched', () => {
+    const out = capture();
+    createLogger({ service: 'x', destination: out }).warn(new Error('meh'));
+    expect(out.lines()[0]).not.toHaveProperty('category');
   });
 });
 

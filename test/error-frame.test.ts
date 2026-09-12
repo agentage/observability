@@ -1,13 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import {
-  categoryOf,
-  causeChainOf,
-  causeCodeOf,
-  causeSummaryOf,
-  errorFrameFields,
-  frameOf,
-  rootCauseOf,
-} from '../src/error-frame.js';
+import { errorFrameFields } from '../src/error-frame.js';
+
+// The individual lifters are module-private since v1; `errorFrameFields` is the one
+// entry the logger calls, so every case is asserted through the fields it emits.
+const fields = (err: unknown) => errorFrameFields(err);
 
 const systemError = (message: string, code: string): Error =>
   Object.assign(new Error(message), { code, errno: -3008, syscall: 'getaddrinfo' });
@@ -20,49 +16,47 @@ const withStack = (message: string, stack: string): Error => {
 
 describe('cause chain', () => {
   it('is empty for an error with no cause', () => {
-    const err = new Error('solo');
-    expect(causeChainOf(err)).toEqual([]);
-    expect(rootCauseOf(err)).toBeUndefined();
-    expect(causeSummaryOf(err)).toBeUndefined();
-    expect(causeCodeOf(err)).toBeUndefined();
+    const solo = new Error('solo');
+    solo.stack = undefined;
+    expect(fields(solo)).toEqual({ category: 'logic' });
   });
 
   it('lifts the deepest system-error cause of a wrapped fetch failure', () => {
     const dns = systemError('getaddrinfo ENOTFOUND agentage-web_backend', 'ENOTFOUND');
     const middle = new Error('connect failed', { cause: dns });
     const err = new TypeError('fetch failed', { cause: middle });
-    expect(rootCauseOf(err)).toBe(dns);
-    expect(causeCodeOf(err)).toBe('ENOTFOUND');
-    expect(causeSummaryOf(err)).toBe('Error: getaddrinfo ENOTFOUND agentage-web_backend');
+    expect(fields(err)).toMatchObject({
+      cause: 'Error: getaddrinfo ENOTFOUND agentage-web_backend',
+      error_code: 'ENOTFOUND',
+    });
   });
 
   it('appends the code when the message does not carry it', () => {
     const err = new Error('outer', { cause: systemError('socket hang up', 'ECONNRESET') });
-    expect(causeSummaryOf(err)).toBe('Error: socket hang up (ECONNRESET)');
+    expect(fields(err).cause).toBe('Error: socket hang up (ECONNRESET)');
   });
 
   it('falls back to the deepest plain cause', () => {
     const err = new Error('outer', { cause: new RangeError('inner') });
-    expect(causeSummaryOf(err)).toBe('RangeError: inner');
-    expect(causeCodeOf(err)).toBeUndefined();
+    expect(fields(err).cause).toBe('RangeError: inner');
+    expect(fields(err).error_code).toBeUndefined();
   });
 
   it('caps the walk at five causes', () => {
     let err = new Error('deepest');
     for (let i = 0; i < 8; i += 1) err = new Error(`wrap-${i}`, { cause: err });
-    expect(causeChainOf(err)).toHaveLength(5);
+    expect(fields(err).cause).toBe('Error: wrap-2');
   });
 
   it('survives a cycle', () => {
     const a = new Error('a');
     const b = new Error('b', { cause: a });
     (a as Error & { cause?: unknown }).cause = b;
-    expect(causeChainOf(a)).toEqual([b]);
-    expect(causeSummaryOf(a)).toBe('Error: b');
+    expect(fields(a).cause).toBe('Error: b');
   });
 });
 
-describe('frameOf', () => {
+describe('frame', () => {
   it('picks the top in-app frame of the error stack', () => {
     const err = withStack(
       'boom',
@@ -72,12 +66,11 @@ describe('frameOf', () => {
         '    at run (/app/src/server.ts:9:1)',
       ].join('\n')
     );
-    expect(frameOf(err)).toBe('src/provision.ts:42:11 in provisionMemory');
+    expect(fields(err).frame).toBe('src/provision.ts:42:11 in provisionMemory');
   });
 
   it('handles a bare location frame', () => {
-    const err = withStack('boom', '    at /app/src/boot.ts:3:7');
-    expect(frameOf(err)).toBe('src/boot.ts:3:7');
+    expect(fields(withStack('boom', '    at /app/src/boot.ts:3:7')).frame).toBe('src/boot.ts:3:7');
   });
 
   it('skips node internals and native frames', () => {
@@ -90,14 +83,14 @@ describe('frameOf', () => {
         '    at readVault (/srv/lib/vault.ts:8:3)',
       ].join('\n')
     );
-    expect(frameOf(err)).toBe('lib/vault.ts:8:3 in readVault');
+    expect(fields(err).frame).toBe('lib/vault.ts:8:3 in readVault');
   });
 
   it('falls back to a cause stack when the error has no app frame', () => {
     const cause = withStack('inner', '    at readVault (/srv/src/vault.ts:8:3)');
     const err = withStack('outer', '    at fetch (/app/node_modules/undici/index.js:1:1)');
     (err as Error & { cause?: unknown }).cause = cause;
-    expect(frameOf(err)).toBe('src/vault.ts:8:3 in readVault');
+    expect(fields(err).frame).toBe('src/vault.ts:8:3 in readVault');
   });
 
   it('falls back to callSite when neither the error nor its causes has an app frame', () => {
@@ -106,21 +99,23 @@ describe('frameOf', () => {
       value: 'Error: fetch call site\n    at provisionMemory (/app/src/provision.ts:42:11)',
       enumerable: false,
     });
-    expect(frameOf(err)).toBe('src/provision.ts:42:11 in provisionMemory');
+    expect(fields(err).frame).toBe('src/provision.ts:42:11 in provisionMemory');
   });
 
-  it('returns undefined for a non-Error and for a stackless error', () => {
-    expect(frameOf('nope')).toBeUndefined();
+  it('has no frame for a non-Error or a stackless error', () => {
+    expect(fields('nope').frame).toBeUndefined();
     const err = new Error('bare');
     err.stack = undefined;
-    expect(frameOf(err)).toBeUndefined();
+    expect(fields(err).frame).toBeUndefined();
   });
 });
 
-describe('categoryOf', () => {
+describe('category', () => {
   it('reads a timeout off the error name', () => {
-    expect(categoryOf(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe('timeout');
-    expect(categoryOf(Object.assign(new Error('timed out'), { name: 'TimeoutError' }))).toBe(
+    expect(fields(Object.assign(new Error('aborted'), { name: 'AbortError' })).category).toBe(
+      'timeout'
+    );
+    expect(fields(Object.assign(new Error('timed out'), { name: 'TimeoutError' })).category).toBe(
       'timeout'
     );
   });
@@ -132,7 +127,7 @@ describe('categoryOf', () => {
     'UND_ERR_HEADERS_TIMEOUT',
     'UND_ERR_BODY_TIMEOUT',
   ])('classifies %s as timeout', (code) => {
-    expect(categoryOf(systemError('slow', code))).toBe('timeout');
+    expect(fields(systemError('slow', code)).category).toBe('timeout');
   });
 
   it.each([
@@ -148,27 +143,27 @@ describe('categoryOf', () => {
     'DEPTH_ZERO_SELF_SIGNED_CERT',
     'UND_ERR_SOCKET',
   ])('classifies %s as connectivity', (code) => {
-    expect(categoryOf(systemError('net', code))).toBe('connectivity');
+    expect(fields(systemError('net', code)).category).toBe('connectivity');
   });
 
   it.each(['23505', '42P01', '08006'])('classifies SQLSTATE %s as db', (code) => {
-    expect(categoryOf(systemError('duplicate key', code))).toBe('db');
+    expect(fields(systemError('duplicate key', code)).category).toBe('db');
   });
 
   it('falls back to logic for an unknown or absent code', () => {
-    expect(categoryOf(new Error('boom'))).toBe('logic');
-    expect(categoryOf(systemError('weird', 'ESOMETHINGELSE'))).toBe('logic');
-    expect(categoryOf('not an error')).toBe('logic');
+    expect(fields(new Error('boom')).category).toBe('logic');
+    expect(fields(systemError('weird', 'ESOMETHINGELSE')).category).toBe('logic');
+    expect(fields('not an error').category).toBe('logic');
   });
 
   it('classifies by the ROOT cause, not the wrapper', () => {
     const dns = systemError('getaddrinfo ENOTFOUND backend', 'ENOTFOUND');
     const wrapped = new TypeError('fetch failed', { cause: dns });
-    expect(categoryOf(new Error('provision failed', { cause: wrapped }))).toBe('connectivity');
+    expect(fields(new Error('provision failed', { cause: wrapped })).category).toBe('connectivity');
   });
 
   it('does not mistake a five-char connectivity code for SQLSTATE', () => {
-    expect(categoryOf(systemError('broken pipe', 'EPIPE'))).toBe('connectivity');
+    expect(fields(systemError('broken pipe', 'EPIPE')).category).toBe('connectivity');
   });
 });
 

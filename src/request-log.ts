@@ -67,7 +67,7 @@ const header = (req: RequestLogRequest, name: string): string | undefined => {
 const clientIp = (req: RequestLogRequest): string | undefined =>
   header(req, 'x-forwarded-for')?.split(',')[0]?.trim() || undefined;
 
-export const parseIpRanges = (raw: string | undefined): readonly string[] =>
+const parseIpRanges = (raw: string | undefined): readonly string[] =>
   (raw ?? '')
     .split(',')
     .map((range) => range.trim())
@@ -100,7 +100,7 @@ const dropTrailingSlash = (route: string): string =>
  * `path`. Same spelling the span lane already uses for an unmatched Next server
  * span, which is the literal the admin not-found fold matches on.
  */
-export const UNMATCHED_ROUTE = '(unmatched)';
+const UNMATCHED_ROUTE = '(unmatched)';
 
 /** Bot URLs are arbitrary length; a readable prefix bounds the line. */
 const MAX_UNMATCHED_PATH = 200;

@@ -17,7 +17,7 @@ const methodOf = (input: FetchArgs[0], init?: FetchArgs[1]): string =>
  * cardinality a facet can group on. Credentials are dropped with the rest of the
  * authority; the path is templated by the same rule that names fetch spans.
  */
-export function fetchTargetOf(input: FetchArgs[0], init?: FetchArgs[1]): string {
+function fetchTargetOf(input: FetchArgs[0], init?: FetchArgs[1]): string {
   const raw = urlOf(input);
   const method = methodOf(input, init);
   let host = '';

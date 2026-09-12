@@ -70,10 +70,7 @@ const inRange = (address: number, range: string): boolean => {
  * Malformed input never throws, it just does not match; an IPv6 address never
  * matches, so a v6 caller stays classified by its user agent.
  */
-export const ipInRanges = (
-  ip: string | undefined,
-  ranges: readonly string[] | undefined
-): boolean => {
+const ipInRanges = (ip: string | undefined, ranges: readonly string[] | undefined): boolean => {
   if (!ip || !ranges || ranges.length === 0) return false;
   const address = toUint32(ip);
   if (address === undefined) return false;

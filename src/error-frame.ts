@@ -16,7 +16,7 @@ const MAX_CAUSE_DEPTH = 5;
 const isError = (value: unknown): value is Error => value instanceof Error;
 
 /** Walks `.cause`, depth-capped and cycle-safe, excluding the error itself. */
-export function causeChainOf(err: unknown, maxDepth = MAX_CAUSE_DEPTH): Error[] {
+function causeChainOf(err: unknown, maxDepth = MAX_CAUSE_DEPTH): Error[] {
   const chain: Error[] = [];
   const seen = new Set<unknown>([err]);
   let current: unknown = isError(err) ? (err as Error & { cause?: unknown }).cause : undefined;
@@ -41,7 +41,7 @@ const hasSystemFields = (err: Error): boolean => {
  * Deepest cause carrying Node system-error fields, else the deepest cause at all -
  * for `TypeError: fetch failed` that is the getaddrinfo ENOTFOUND underneath.
  */
-export function rootCauseOf(err: unknown, maxDepth = MAX_CAUSE_DEPTH): Error | undefined {
+function rootCauseOf(err: unknown, maxDepth = MAX_CAUSE_DEPTH): Error | undefined {
   const chain = causeChainOf(err, maxDepth);
   for (let i = chain.length - 1; i >= 0; i -= 1) {
     if (hasSystemFields(chain[i])) return chain[i];
@@ -50,13 +50,13 @@ export function rootCauseOf(err: unknown, maxDepth = MAX_CAUSE_DEPTH): Error | u
 }
 
 /** `code` of the root cause, when it is a Node system-error style string. */
-export function causeCodeOf(err: unknown): string | undefined {
+function causeCodeOf(err: unknown): string | undefined {
   const code = (rootCauseOf(err) as SystemErrorFields | undefined)?.code;
   return typeof code === 'string' && code ? code : undefined;
 }
 
 /** One-line root-cause summary: `Error: getaddrinfo ENOTFOUND agentage-web_backend`. */
-export function causeSummaryOf(err: unknown): string | undefined {
+function causeSummaryOf(err: unknown): string | undefined {
   const cause = rootCauseOf(err);
   if (!cause) return undefined;
   const code = (cause as SystemErrorFields).code;
@@ -95,7 +95,7 @@ const frameFromStack = (stack: string | undefined): string | undefined => {
  * Top in-app stack frame - the error's own stack first, then its causes, then the
  * `callSite` `tracedFetch` attached (an async fetch rejection has no app frame).
  */
-export function frameOf(err: unknown): string | undefined {
+function frameOf(err: unknown): string | undefined {
   if (!isError(err)) return undefined;
   const own = frameFromStack(err.stack);
   if (own) return own;
@@ -111,7 +111,7 @@ export function frameOf(err: unknown): string | undefined {
  * The `fetchTarget` `tracedFetch` stamped, from the error itself or any cause -
  * the throw site is usually a wrapper several levels above the failed fetch.
  */
-export function targetOf(err: unknown): string | undefined {
+function targetOf(err: unknown): string | undefined {
   if (!isError(err)) return undefined;
   for (const candidate of [err, ...causeChainOf(err)]) {
     const target = (candidate as WithCallSite).fetchTarget;
@@ -151,7 +151,7 @@ export type ErrorCategory = 'timeout' | 'connectivity' | 'db' | 'logic';
  * Classifies by ROOT cause, so a wrapper (`TypeError: fetch failed`) never hides the
  * ENOTFOUND underneath. Anything unrecognised is `logic` - our bug until proven otherwise.
  */
-export function categoryOf(err: unknown): ErrorCategory {
+function categoryOf(err: unknown): ErrorCategory {
   const root = rootCauseOf(err) ?? (isError(err) ? err : undefined);
   if (!root) return 'logic';
   const raw = (root as SystemErrorFields).code;
@@ -170,6 +170,10 @@ export interface ErrorFrameFields {
   target?: string;
   category?: ErrorCategory;
 }
+
+/** Handlers catch `unknown`; the logger lifts fields off a real Error only. */
+export const toError = (err: unknown): Error =>
+  err instanceof Error ? err : new Error(String(err));
 
 /** Cause summary, in-app frame, system `code` fallback, fetch target and category. */
 export function errorFrameFields(err: unknown): ErrorFrameFields {

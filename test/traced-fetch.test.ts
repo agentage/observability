@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { tracedFetch, fetchTargetOf } from '../src/traced-fetch.js';
-import { frameOf, targetOf } from '../src/error-frame.js';
+import { tracedFetch } from '../src/traced-fetch.js';
+import { errorFrameFields } from '../src/error-frame.js';
+
+// `fetchTargetOf` is module-private since v1: the target is observable as the
+// `fetchTarget` stamped on a rejection, which is what the log line lifts.
+const targetOfCall = async (...args: Parameters<typeof tracedFetch>): Promise<unknown> => {
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
+  const thrown = await tracedFetch(...args).catch((err: unknown) => err);
+  return (thrown as { fetchTarget?: string }).fetchTarget;
+};
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -53,7 +61,7 @@ describe('tracedFetch', () => {
     expect(typeof callSite).toBe('string');
     expect(Object.keys(failure)).not.toContain('callSite');
     // The captured stack is what gives the frame extractor an application frame.
-    expect(frameOf(failure)).toContain('traced-fetch');
+    expect(errorFrameFields(failure).frame).toContain('traced-fetch');
   });
 
   it('leaves a non-Error rejection alone', async () => {
@@ -88,53 +96,57 @@ describe('tracedFetch', () => {
     const wrapped = new Error('provisioning failed', {
       cause: new Error('inner', { cause: thrown }),
     });
-    expect(targetOf(wrapped)).toBe('GET api.test/v1/ping');
+    expect(errorFrameFields(wrapped).target).toBe('GET api.test/v1/ping');
   });
 
   it('has no target when nothing in the chain carries one', () => {
-    expect(targetOf(new Error('plain'))).toBeUndefined();
-    expect(targetOf('not an error')).toBeUndefined();
+    expect(errorFrameFields(new Error('plain')).target).toBeUndefined();
+    expect(errorFrameFields('not an error').target).toBeUndefined();
   });
 });
 
-describe('fetchTargetOf', () => {
-  it('defaults the method to GET and templates nothing on a bare root', () => {
-    expect(fetchTargetOf('https://api.test/')).toBe('GET api.test/');
+describe('fetchTarget stamping', () => {
+  it('defaults the method to GET and templates nothing on a bare root', async () => {
+    await expect(targetOfCall('https://api.test/')).resolves.toBe('GET api.test/');
   });
 
-  it('templates uuid, long hex and all-digit segments', () => {
-    expect(fetchTargetOf('https://api.test/v1/u/123e4567-e89b-12d3-a456-426614174000/notes')).toBe(
-      'GET api.test/v1/u/:id/notes'
-    );
-    expect(fetchTargetOf('https://api.test/blobs/5f2b8c1d9e4a7b3c6d8e')).toBe(
+  it('templates uuid, long hex and all-digit segments', async () => {
+    await expect(
+      targetOfCall('https://api.test/v1/u/123e4567-e89b-12d3-a456-426614174000/notes')
+    ).resolves.toBe('GET api.test/v1/u/:id/notes');
+    await expect(targetOfCall('https://api.test/blobs/5f2b8c1d9e4a7b3c6d8e')).resolves.toBe(
       'GET api.test/blobs/:id'
     );
-    expect(fetchTargetOf('https://api.test/users/98765')).toBe('GET api.test/users/:id');
+    await expect(targetOfCall('https://api.test/users/98765')).resolves.toBe(
+      'GET api.test/users/:id'
+    );
   });
 
-  it('drops the query string and hash', () => {
-    expect(fetchTargetOf('https://api.test/search?q=secret&page=2#frag')).toBe(
+  it('drops the query string and hash', async () => {
+    await expect(targetOfCall('https://api.test/search?q=secret&page=2#frag')).resolves.toBe(
       'GET api.test/search'
     );
   });
 
-  it('keeps a non-default port', () => {
-    expect(fetchTargetOf('https://api.test:8443/v1/ping')).toBe('GET api.test:8443/v1/ping');
+  it('keeps a non-default port', async () => {
+    await expect(targetOfCall('https://api.test:8443/v1/ping')).resolves.toBe(
+      'GET api.test:8443/v1/ping'
+    );
   });
 
-  it('never leaks credentials from the authority', () => {
-    const target = fetchTargetOf('https://user:hunter2@api.test/v1/ping');
+  it('never leaks credentials from the authority', async () => {
+    const target = await targetOfCall('https://user:hunter2@api.test/v1/ping');
     expect(target).toBe('GET api.test/v1/ping');
     expect(target).not.toContain('hunter2');
   });
 
-  it('reads method and url off a Request input', () => {
+  it('reads method and url off a Request input', async () => {
     const request = new Request('https://api.test/v1/items/7', { method: 'put' });
-    expect(fetchTargetOf(request)).toBe('PUT api.test/v1/items/:id');
+    await expect(targetOfCall(request)).resolves.toBe('PUT api.test/v1/items/:id');
   });
 
-  it('lets an explicit init method win over the Request method', () => {
+  it('lets an explicit init method win over the Request method', async () => {
     const request = new Request('https://api.test/v1/ping', { method: 'POST' });
-    expect(fetchTargetOf(request, { method: 'head' })).toBe('HEAD api.test/v1/ping');
+    await expect(targetOfCall(request, { method: 'head' })).resolves.toBe('HEAD api.test/v1/ping');
   });
 });

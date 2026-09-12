@@ -5,7 +5,6 @@ import {
   CLIENT_TYPE_HEADER,
   classifyClientType,
   contextWithUserType,
-  ipInRanges,
   stampUserType,
   userTypeFromContext,
 } from '../src/client-type.js';
@@ -126,31 +125,35 @@ describe('bot ip ranges', () => {
   });
 });
 
-describe('ipInRanges', () => {
+// The CIDR matcher is module-private since v1; `botIpRanges` is how a caller reaches it.
+describe('bot IP ranges', () => {
+  const isBot = (ip: string | undefined, ranges: readonly string[] | undefined): boolean =>
+    classifyClientType({ userAgent: 'Mozilla/5.0 Safari/605', ip, botIpRanges: ranges }) === 'bot';
+
   it('matches a bare address as a /32 and honors the prefix width', () => {
-    expect(ipInRanges('10.0.0.7', ['10.0.0.7'])).toBe(true);
-    expect(ipInRanges('10.0.0.8', ['10.0.0.7'])).toBe(false);
-    expect(ipInRanges('10.0.0.8', ['10.0.0.0/24'])).toBe(true);
-    expect(ipInRanges('10.0.1.8', ['10.0.0.0/24'])).toBe(false);
-    expect(ipInRanges('10.0.1.8', ['10.0.0.0/16'])).toBe(true);
+    expect(isBot('10.0.0.7', ['10.0.0.7'])).toBe(true);
+    expect(isBot('10.0.0.8', ['10.0.0.7'])).toBe(false);
+    expect(isBot('10.0.0.8', ['10.0.0.0/24'])).toBe(true);
+    expect(isBot('10.0.1.8', ['10.0.0.0/24'])).toBe(false);
+    expect(isBot('10.0.1.8', ['10.0.0.0/16'])).toBe(true);
   });
 
   it('matches every address for /0 and the boundaries above 2^31', () => {
-    expect(ipInRanges('203.0.113.1', ['0.0.0.0/0'])).toBe(true);
-    expect(ipInRanges('255.255.255.255', ['255.255.255.255'])).toBe(true);
-    expect(ipInRanges('200.0.0.1', ['128.0.0.0/1'])).toBe(true);
-    expect(ipInRanges('127.255.255.255', ['128.0.0.0/1'])).toBe(false);
+    expect(isBot('203.0.113.1', ['0.0.0.0/0'])).toBe(true);
+    expect(isBot('255.255.255.255', ['255.255.255.255'])).toBe(true);
+    expect(isBot('200.0.0.1', ['128.0.0.0/1'])).toBe(true);
+    expect(isBot('127.255.255.255', ['128.0.0.0/1'])).toBe(false);
   });
 
   it('tolerates surrounding whitespace and scans every range given', () => {
-    expect(ipInRanges(' 10.0.0.8 ', [' 10.0.0.0/24 '])).toBe(true);
-    expect(ipInRanges('10.0.0.8', ['bad', '192.168.0.0/16', '10.0.0.0/24'])).toBe(true);
+    expect(isBot(' 10.0.0.8 ', [' 10.0.0.0/24 '])).toBe(true);
+    expect(isBot('10.0.0.8', ['bad', '192.168.0.0/16', '10.0.0.0/24'])).toBe(true);
   });
 
   it('is false for missing input rather than throwing', () => {
-    expect(ipInRanges(undefined, ['10.0.0.0/8'])).toBe(false);
-    expect(ipInRanges('10.0.0.1', undefined)).toBe(false);
-    expect(ipInRanges('10.0.0.1', [])).toBe(false);
+    expect(isBot(undefined, ['10.0.0.0/8'])).toBe(false);
+    expect(isBot('10.0.0.1', undefined)).toBe(false);
+    expect(isBot('10.0.0.1', [])).toBe(false);
   });
 });
 

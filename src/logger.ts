@@ -1,5 +1,6 @@
 import { pino, destination, type Logger, type DestinationStream, type LogFn } from 'pino';
 import { trace, isSpanContextValid, SpanStatusCode } from '@opentelemetry/api';
+import { errorFrameFields } from './error-frame.js';
 
 export type { Logger };
 
@@ -25,12 +26,32 @@ const errorFrom = (arg: unknown): Error | undefined =>
       ? (arg as { err: Error }).err
       : undefined;
 
+// Callers pass the error NAME as `error_code`, which is no code at all - the root
+// cause's system code (ENOTFOUND) beats `TypeError` for grouping.
+const reconcileCode = (err: Error, lifted: string | undefined, given: unknown): unknown => {
+  const named = !given || given === err.name;
+  return named && lifted ? lifted : given;
+};
+
+/** `{ err, cause, frame, target, category, error_code }` - every error line, one shape. */
+const enrich = (arg: unknown, err: Error): Record<string, unknown> => {
+  const ctx = arg instanceof Error ? {} : (arg as Record<string, unknown>);
+  const lifted = errorFrameFields(err);
+  return {
+    err,
+    ...lifted,
+    ...ctx,
+    error_code: reconcileCode(err, lifted.error_code, ctx.error_code),
+  };
+};
+
 /**
  * JSON logger to stdout (or stderr for stdio transports) - the estate log agent
  * tails container output, so no in-process shipping. Every line carries
  * `service`, and when a span is active `trace_id`/`span_id` are injected so the
- * log links to its trace. `log.error(err)` / `log.fatal(err)` also record the
- * exception on that span and flag it red - no separate capture call.
+ * log links to its trace. `log.error(err)` / `log.fatal(err)` also lift the root
+ * cause, in-app frame, fetch target, category and system code onto the line, and
+ * record the exception on that span - no separate capture call.
  */
 export function createLogger(opts: LoggerOptions = {}): Logger {
   const logger = pino(
@@ -45,10 +66,10 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
         logMethod(args, method, level) {
           const err = level >= ERROR_LEVEL ? errorFrom(args[0]) : undefined;
           if (err) {
-            // `{ err, ...ctx }` with no message: default it, as pino does for a bare Error.
-            if (!(args[0] instanceof Error) && args.length === 1) {
-              (args as unknown[]).push(err.message);
-            }
+            const argv = args as unknown[];
+            argv[0] = enrich(argv[0], err);
+            // No message argument: default it, as pino does for a bare Error.
+            if (argv.length === 1) argv.push(err.message);
             const span = trace.getActiveSpan();
             if (span) {
               span.recordException(err);
@@ -63,6 +84,3 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
   );
   return logger;
 }
-
-/** `createLogger` under the `health()`-style name: `const log = logger()`. */
-export const logger = createLogger;

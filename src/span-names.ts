@@ -45,7 +45,7 @@ export function readableRoute(route: string): string {
  * `{method} {route}`). Returns null for spans that are not \@vercel/otel
  * fetch-client spans, which stay untouched.
  */
-export function normalizeFetchSpanName(name: string): string | null {
+function normalizeFetchSpanName(name: string): string | null {
   const m = /^fetch\s+([A-Z]+)\s+(\S+)$/.exec(name);
   if (!m) return null;
   return `${m[1]} ${routeFromUrl(m[2])}`;

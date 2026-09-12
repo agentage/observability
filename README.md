@@ -58,22 +58,20 @@ export const GET = health({
 **Express** - same options, mounted as a handler:
 
 ```ts
-import { nodeHealth } from '@agentage/observability/health';
+import { createHealthHandler } from '@agentage/observability/health';
 
-app.get('/health', nodeHealth({ checks: { db: () => pool.query('SELECT 1') } }));
+app.get('/health', createHealthHandler({ checks: { db: () => pool.query('SELECT 1') } }));
 ```
 
 Mount it on `/api/health` too where your edge only routes `/api`, and register it **before**
-any rate limiter. For images with no Node process (nginx, a built SPA), generate the payload
-at build time with `staticHealth()` and serve it from an exact-match location declared
-_before_ any SPA fallback - otherwise every path answers 200 and the probe proves nothing.
+any rate limiter.
 
 ### Logs
 
 ```ts
-import { logger } from '@agentage/observability';
+import { createLogger } from '@agentage/observability';
 
-const log = logger(); // service name comes from OTEL_SERVICE_NAME
+const log = createLogger(); // service name comes from OTEL_SERVICE_NAME
 log.info({ route: '/login' }, 'user signed in');
 
 try {
@@ -91,9 +89,9 @@ servers must pass `stream: 'stderr'` - on stdio, stdout is the JSON-RPC channel.
 ### Request logs
 
 ```ts
-import { createRequestLog, logger } from '@agentage/observability';
+import { createRequestLog, createLogger } from '@agentage/observability';
 
-app.use(createRequestLog(logger())); // before the routers, so 404s are counted too
+app.use(createRequestLog(createLogger())); // before the routers, so 404s are counted too
 ```
 
 One line per finished request: `kind: 'http'`, `method`, `path`, `route` (templated),
@@ -128,18 +126,13 @@ Rule 4 is why an SSR fetch that sets no headers is not counted as a visitor. Rul
 ranges are caller-supplied, since the addresses change: pass `botIpRanges` (IPv4 CIDRs, a
 bare address means `/32`) or set `OTEL_BOT_IP_RANGES`, and a fleet crawling behind
 plain-Chrome user agents is classified from where it calls rather than what it claims. The
-address comes from the leftmost `x-forwarded-for` hop. `ipInRanges(ip, ranges)` is exported
-for the same check elsewhere.
+address comes from the leftmost `x-forwarded-for` hop.
 
 The middleware also puts the value on the request's span as the `user_type` attribute and
 into OTel baggage, so the admin console can drop test traffic from spans without regexing
 the user agent. Every span `withSpan` creates and every span `setMcpTool` stamps inherits
-it; for a span you create yourself, call `stampUserType(span)`. Pass your own `classify` to
-override the rule, or `() => undefined` to drop the field.
-
-```ts
-import { classifyClientType, stampUserType, userTypeFromContext } from '@agentage/observability';
-```
+it. Pass your own `classify` to override the rule, or `() => undefined` to drop the field;
+`classifyClientType(input)` is the same verdict as a plain function.
 
 ### Error events
 
@@ -205,8 +198,7 @@ The reporter rate-limits itself (20 events/minute by default), drops identical c
 messages, and never throws. The collector whitelists the payload - unknown keys never reach
 your logs - and re-emits each event as the same error line with `source: 'client'` and the
 reporting app's `service`. `sendBeacon` posts `text/plain`, so parse the body as text (or
-`express.json({ type: '*/*' })`); `parseClientEvents(body)` accepts either a string or an
-already-parsed object.
+`express.json({ type: '*/*' })`).
 
 ### Traces
 
@@ -297,33 +289,29 @@ without parsing the body.
 
 ## API
 
-| Import                              | Export                                                               | Purpose                                              |
-| ----------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------- |
-| `@agentage/observability/health`    | `health(options?)`                                                   | Fetch-native handler: Next, Hono, Workers, Deno, Bun |
-|                                     | `nodeHealth(options?)`                                               | Express/Connect handler                              |
-|                                     | `staticHealth(options?)`                                             | Build-time JSON for images with no process           |
-|                                     | `healthEnvelope`, `resolveHealth`, `runChecks`, `serverTimingHeader` | Lower-level pieces if you build your own transport   |
-| `@agentage/observability`           | `logger(options?)`                                                   | pino preset: trace-linked lines, `log.error` capture |
-|                                     | `withSpan(name, fn, attrs?)`                                         | Add depth deliberately; no-op without an SDK         |
-|                                     | `setMcpTool`, `markSpanError`, `setSpanAttributes`                   | MCP tool-call span semantics                         |
-|                                     | `createRequestLog(log, options?)`                                    | Express middleware: one wide event per request       |
-|                                     | `classifyClientType(input)`                                          | `user`/`test`/`service`/`bot` from header, UA, path  |
-|                                     | `ipInRanges(ip, ranges)`                                             | IPv4 CIDR membership, dependency-free                |
-|                                     | `stampUserType(span?)`, `userTypeFromContext()`                      | Put `user_type` on spans you create yourself         |
-|                                     | `errorMiddleware(log, options?)`                                     | Express error handler emitting the `ErrorEvent`      |
-|                                     | `onRequestError(log)`                                                | Next `instrumentation.ts` error hook                 |
-|                                     | `wrapToolHandler(log, tool, handler)`                                | MCP tool errors, including `isError` results         |
-|                                     | `tracedFetch(input, init?)`                                          | `fetch` keeping call site + target on rejection      |
-|                                     | `rootCauseOf`, `causeSummaryOf`, `causeCodeOf`, `frameOf`            | The `cause`/`frame` lifters, standalone              |
-|                                     | `categoryOf`, `targetOf`, `fetchTargetOf`                            | The `category`/`target` lifters, standalone          |
-| `@agentage/observability/bootstrap` | (side effect)                                                        | `node --import` trace bootstrap                      |
-| `@agentage/observability/next`      | `register`, `onRequestError`                                         | Next.js `instrumentation.ts`                         |
+| Import                              | Export                                             | Purpose                                              |
+| ----------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| `@agentage/observability/health`    | `health(options?)`                                 | Fetch-native handler: Next, Hono, Workers, Deno, Bun |
+|                                     | `createHealthHandler(options?)`                    | Express/Connect handler                              |
+|                                     | `healthResponse(options?)`                         | Next route-handler body returning a `Response`       |
+|                                     | `healthEnvelope(service?, options?)`               | The envelope itself, if you build your own transport |
+| `@agentage/observability`           | `createLogger(options?)`                           | pino preset: trace-linked lines, `log.error` capture |
+|                                     | `withSpan(name, fn, attrs?)`                       | Add depth deliberately; no-op without an SDK         |
+|                                     | `setMcpTool`, `markSpanError`, `setSpanAttributes` | MCP tool-call span semantics                         |
+|                                     | `createRequestLog(log, options?)`                  | Express middleware: one wide event per request       |
+|                                     | `classifyClientType(input)`                        | `user`/`test`/`service`/`bot` from header, UA, path  |
+|                                     | `errorMiddleware(log, options?)`                   | Express error handler emitting the `ErrorEvent`      |
+|                                     | `onRequestError(log)`                              | Next `instrumentation.ts` error hook                 |
+|                                     | `wrapToolHandler(log, tool, handler)`              | MCP tool errors, including `isError` results         |
+|                                     | `tracedFetch(input, init?)`                        | `fetch` keeping call site + target on rejection      |
+|                                     | `collectorHandler(log, options)`                   | Sink for the browser reporter's events               |
+| `@agentage/observability/bootstrap` | (side effect)                                      | `node --import` trace bootstrap                      |
+| `@agentage/observability/next`      | `register`, `onRequestError`                       | Next.js `instrumentation.ts`                         |
 
-`createHealthHandler`, `healthResponse` and `staticHealthJson` are the previous names for
-`nodeHealth`, `health` and `staticHealth`; `createLogger` is the previous name for `logger`,
-and `captureError(log, err)` is what `log.error(err)` now does by itself. All remain
-exported and unchanged. `checks` also accepts the original
-`[{ name, run, timeoutMs, optional }]` array form.
+`log.error(err)` is what the removed `captureError(log, err)` did: the logger lifts `cause`,
+`frame`, `target`, `category` and `error_code` onto the line by itself. The `logger` /
+`nodeHealth` / `staticHealth` aliases and the standalone lifters were removed in v1.
+`checks` also accepts the original `[{ name, run, timeoutMs, optional }]` array form.
 
 ## Configuration
 
