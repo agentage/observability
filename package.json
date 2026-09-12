@@ -50,7 +50,7 @@
     "smoke:bootstrap": "node --import ./dist/bootstrap.js ./test/fixtures/bootstrap-app.mjs",
     "verify": "npm run type-check && npm run lint && npm run format:check && npm run test && npm run build && npm run smoke:dist && npm run smoke:bootstrap",
     "prepublishOnly": "npm run verify",
-    "smoke:dist": "node --input-type=module -e \"const k = await import('./dist/index.js'); if (typeof k.log.info !== 'function' || typeof k.span !== 'function' || typeof k.setUser !== 'function' || typeof k.health !== 'function') process.exit(1); const deprecated = ['createLogger', 'createRequestLog', 'errorMiddleware', 'onRequestError', 'collectorHandler', 'wrapToolHandler', 'setMcpTool', 'markSpanError', 'setSpanAttributes', 'tracedFetch', 'withSpan', 'classifyClientType']; if (deprecated.some((name) => typeof k[name] !== 'function')) process.exit(1); if (k.CLIENT_TYPE_HEADER !== 'x-client-type' || k.USER_TYPE_FIELD !== 'user_type' || k.UserType.Bot !== 'bot') process.exit(1); const pruned = ['captureError', 'logger', 'parseClientEvents', 'redactArgs', 'errorCodeOf', 'fingerprintOf', 'rootCauseOf', 'categoryOf', 'frameOf', 'targetOf', 'errorFrameFields', 'fetchTargetOf', 'resolveTracingConfig', 'samplerFromEnv', 'routeFromUrl', 'parseIpRanges', 'ipInRanges', 'stampUserType', 'userTypeFromContext', 'UNMATCHED_ROUTE']; if (pruned.some((name) => name in k)) process.exit(1); const b = await import('./dist/browser.js'); if (typeof b.installErrorReporter !== 'function' || typeof b.installErrorReporter({ endpoint: '/x', service: 'smoke' }) !== 'function') process.exit(1); const h = await import('./dist/health.js'); if (h.healthEnvelope('smoke').data.service !== 'smoke' || typeof h.createHealthHandler !== 'function' || typeof h.healthResponse !== 'function' || typeof h.health !== 'function' || ['nodeHealth', 'staticHealth', 'staticHealthJson', 'runChecks', 'resolveHealth'].some((name) => name in h)) process.exit(1); const n = await import('./dist/next.js'); if (typeof n.register !== 'function' || typeof n.onRequestError !== 'function') process.exit(1); await import('./dist/bootstrap.js'); console.log('dist smoke ok');\"",
+    "smoke:dist": "node --input-type=module -e \"const k = await import('./dist/index.js'); if (typeof k.log.info !== 'function' || typeof k.span !== 'function' || typeof k.setUser !== 'function' || typeof k.health !== 'function') process.exit(1); const deprecated = ['createLogger', 'createRequestLog', 'errorMiddleware', 'onRequestError', 'collectorHandler', 'wrapToolHandler', 'setMcpTool', 'markSpanError', 'setSpanAttributes', 'tracedFetch', 'withSpan', 'classifyClientType']; if (deprecated.some((name) => typeof k[name] !== 'function')) process.exit(1); if (k.CLIENT_TYPE_HEADER !== 'x-client-type' || k.USER_TYPE_FIELD !== 'user_type' || k.UserType.Bot !== 'bot') process.exit(1); const pruned = ['captureError', 'logger', 'parseClientEvents', 'redactArgs', 'errorCodeOf', 'fingerprintOf', 'rootCauseOf', 'categoryOf', 'frameOf', 'targetOf', 'errorFrameFields', 'fetchTargetOf', 'resolveTracingConfig', 'samplerFromEnv', 'routeFromUrl', 'parseIpRanges', 'ipInRanges', 'stampUserType', 'userTypeFromContext', 'UNMATCHED_ROUTE']; if (pruned.some((name) => name in k)) process.exit(1); const b = await import('./dist/browser.js'); if (typeof b.installErrorReporter !== 'function' || typeof b.installErrorReporter({ endpoint: '/x', service: 'smoke' }) !== 'function') process.exit(1); const h = await import('./dist/health.js'); if (h.healthEnvelope('smoke').data.service !== 'smoke' || typeof h.createHealthHandler !== 'function' || typeof h.healthResponse !== 'function' || typeof h.health !== 'function' || ['nodeHealth', 'staticHealth', 'staticHealthJson', 'runChecks', 'resolveHealth'].some((name) => name in h)) process.exit(1); const n = await import('./dist/next.js'); if (typeof n.register !== 'function' || typeof n.onRequestError !== 'function') process.exit(1); const mcp = await import('./dist/internal/patch/mcp.js'); if (mcp.installMcpPatch({ OBS_MCP_PATCH: 'off' }) !== false || mcp.redactToolArgs({ path: 'a.md', query: 'x', token: 's' }).path !== '<4 chars>' || mcp.redactToolArgs({ query: 'x' }).query !== 'x') process.exit(1); await import('./dist/bootstrap.js'); console.log('dist smoke ok');\"",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
@@ -67,6 +67,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/instrumentation-amqplib": "^0.69.0",
     "@opentelemetry/instrumentation-mongodb": "^0.75.0",
@@ -85,9 +86,11 @@
     "express4": "npm:express@^4.22.2",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.0",
+    "zod": "^4.6.3"
   },
   "peerDependencies": {
+    "@modelcontextprotocol/sdk": ">=1.11 <2",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/instrumentation-amqplib": "^0.69.0",
     "@opentelemetry/instrumentation-mongodb": "^0.75.0",
@@ -96,6 +99,9 @@
     "@vercel/otel": ">=2"
   },
   "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
     "@opentelemetry/instrumentation-amqplib": {
       "optional": true
     },

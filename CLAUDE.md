@@ -16,6 +16,8 @@ No `_internal` barrel, no `export` added so a unit test can reach a helper. Test
 
 Rules: a route the service registered itself always wins; every piece has an `OBS_*=off` hatch; wiring is idempotent per app. The prototype must be patched **before** an app exists - express mixes its descriptors into each app at creation, so a late patch silently does nothing. `src/internal/patch/` is where all of this lives, and nothing in it is public.
 
+The same hook instruments **MCP tools**: `McpServer.registerTool`/`tool` at registration and `Protocol.setRequestHandler` for `tools/call` at dispatch, so both an `McpServer` and a low-level `Server` are covered, over HTTP or stdio. Both surfaces see the same call, so the inner one (the tool callback) claims it through an AsyncLocalStorage cell and the outer one stays quiet - the inner wins because `McpServer` turns a thrown tool error into an `isError` result before the request handler sees it. A handler already carrying the wrap marker (the deprecated `wrapToolHandler`) is left alone, so a repo mid-migration never doubles up. The SDK is an **optional peer**; nothing imports it.
+
 ## `health.ts` must stay edge-safe
 
 Zero imports, Web APIs only - no `node:` import, no Node-only `process.*`, not even inside a comment (`tsc` emits comments into `dist`). `test/edge-safety.test.ts` reads the raw source text to enforce it.
