@@ -1,9 +1,9 @@
 import { context as otelContext } from '@opentelemetry/api';
 import type { Logger } from 'pino';
-import { CLIENT_TYPE_HEADER, classifyClientType, type UserType } from './internal/classify.js';
-import { contextWithUserType, enterUserScope, stampUserType } from './internal/context.js';
-import { isHealthProbePath } from './internal/config.js';
-import { readableRoute, routeFromUrl } from './internal/span-names.js';
+import { CLIENT_TYPE_HEADER, classifyClientType, type UserType } from '../classify.js';
+import { contextWithUserType, enterUserScope, stampUserType } from '../context.js';
+import { isHealthProbePath } from '../config.js';
+import { readableRoute, routeFromUrl } from '../span-names.js';
 
 /** Structurally typed so the kit stays dependency-light - no express import. */
 export interface RequestLogRequest {

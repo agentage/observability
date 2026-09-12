@@ -47,7 +47,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "verify": "npm run type-check && npm run lint && npm run format:check && npm run test && npm run build && npm run smoke:dist",
+    "smoke:bootstrap": "node --import ./dist/bootstrap.js ./test/fixtures/bootstrap-app.mjs",
+    "verify": "npm run type-check && npm run lint && npm run format:check && npm run test && npm run build && npm run smoke:dist && npm run smoke:bootstrap",
     "prepublishOnly": "npm run verify",
     "smoke:dist": "node --input-type=module -e \"const k = await import('./dist/index.js'); if (typeof k.log.info !== 'function' || typeof k.span !== 'function' || typeof k.setUser !== 'function' || typeof k.health !== 'function') process.exit(1); const deprecated = ['createLogger', 'createRequestLog', 'errorMiddleware', 'onRequestError', 'collectorHandler', 'wrapToolHandler', 'setMcpTool', 'markSpanError', 'setSpanAttributes', 'tracedFetch', 'withSpan', 'classifyClientType']; if (deprecated.some((name) => typeof k[name] !== 'function')) process.exit(1); if (k.CLIENT_TYPE_HEADER !== 'x-client-type' || k.USER_TYPE_FIELD !== 'user_type' || k.UserType.Bot !== 'bot') process.exit(1); const pruned = ['captureError', 'logger', 'parseClientEvents', 'redactArgs', 'errorCodeOf', 'fingerprintOf', 'rootCauseOf', 'categoryOf', 'frameOf', 'targetOf', 'errorFrameFields', 'fetchTargetOf', 'resolveTracingConfig', 'samplerFromEnv', 'routeFromUrl', 'parseIpRanges', 'ipInRanges', 'stampUserType', 'userTypeFromContext', 'UNMATCHED_ROUTE']; if (pruned.some((name) => name in k)) process.exit(1); const b = await import('./dist/browser.js'); if (typeof b.installErrorReporter !== 'function' || typeof b.installErrorReporter({ endpoint: '/x', service: 'smoke' }) !== 'function') process.exit(1); const h = await import('./dist/health.js'); if (h.healthEnvelope('smoke').data.service !== 'smoke' || typeof h.createHealthHandler !== 'function' || typeof h.healthResponse !== 'function' || typeof h.health !== 'function' || ['nodeHealth', 'staticHealth', 'staticHealthJson', 'runChecks', 'resolveHealth'].some((name) => name in h)) process.exit(1); const n = await import('./dist/next.js'); if (typeof n.register !== 'function' || typeof n.onRequestError !== 'function') process.exit(1); await import('./dist/bootstrap.js'); console.log('dist smoke ok');\"",
     "test:coverage": "vitest run --coverage"
@@ -71,6 +72,7 @@
     "@opentelemetry/instrumentation-mongodb": "^0.75.0",
     "@opentelemetry/instrumentation-pg": "^0.74.0",
     "@opentelemetry/instrumentation-redis": "^0.70.0",
+    "@types/express": "^5.0.6",
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.46.4",
     "@typescript-eslint/parser": "^8.46.4",
@@ -79,6 +81,8 @@
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
+    "express": "^5.2.1",
+    "express4": "npm:express@^4.22.2",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
     "vitest": "^5.0.0"

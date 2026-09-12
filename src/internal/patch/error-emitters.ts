@@ -1,6 +1,7 @@
+import { trace, isSpanContextValid } from '@opentelemetry/api';
 import type { Logger } from 'pino';
-import { toError, errorCodeOf, fingerprintOf } from './internal/error-fields.js';
-import { userIdFromContext } from './internal/context.js';
+import { toError, errorCodeOf, fingerprintOf, settledErrorCode } from '../error-fields.js';
+import { userIdFromContext } from '../context.js';
 
 /** Structurally typed so the kit stays dependency-light - no express import. */
 export interface ErrorRequest {
@@ -15,6 +16,7 @@ export interface ErrorResponse {
   headersSent?: boolean;
   status(code: number): ErrorResponse;
   json(body: unknown): unknown;
+  setHeader?(name: string, value: string): unknown;
 }
 
 export interface ErrorMiddlewareOptions {
@@ -23,6 +25,12 @@ export interface ErrorMiddlewareOptions {
    * never called `setUser`; defaults to `req.user.id`.
    */
   userId?: (req: ErrorRequest) => string | undefined;
+  /**
+   * Emit an `ErrorEvent` for 4xx too. Default `false`: a 404 or a validation
+   * refusal is the API working, and one bad client otherwise floods the errors
+   * page. The envelope is answered either way.
+   */
+  captureBelow500?: boolean;
 }
 
 export type ExpressErrorHandler = (
@@ -51,28 +59,53 @@ const statusOf = (err: unknown): number => {
   return typeof value === 'number' && value >= 400 && value <= 599 ? value : 500;
 };
 
+/** The id the response header and the envelope carry; '' when no span is active. */
+const traceIdOf = (): string => {
+  const ctx = trace.getActiveSpan()?.spanContext();
+  return ctx && isSpanContextValid(ctx) ? ctx.traceId : '';
+};
+
+/** Marks the kit's own handler so the express patch never appends a second one. */
+export const KIT_ERROR_MIDDLEWARE = Symbol.for('agentage.observability.errorMiddleware');
+
+/** Whether a handler is one of ours - the idempotency check the auto-wiring runs. */
+export const isKitErrorMiddleware = (fn: unknown): boolean =>
+  typeof fn === 'function' && KIT_ERROR_MIDDLEWARE in fn;
+
 /** Express error handler: emits the standard `ErrorEvent`, answers the estate envelope. Mount last. */
 export function errorMiddleware(
   log: Logger,
   options: ErrorMiddlewareOptions = {}
 ): ExpressErrorHandler {
-  return (err, req, res, next) => {
+  const captureBelow500 = options.captureBelow500 ?? false;
+  const handler: ExpressErrorHandler = (err, req, res, next) => {
     const status = statusOf(err);
-    log.error({
-      err: toError(err),
-      route: routeOf(req),
-      method: req.method,
-      status,
-      user_id: options.userId ? options.userId(req) : (userIdFromContext() ?? defaultUserId(req)),
-      error_code: errorCodeOf(err),
-      fingerprint: fingerprintOf(err),
-      source: 'server',
-    });
+    if (status >= 500 || captureBelow500) {
+      log.error({
+        err: toError(err),
+        route: routeOf(req),
+        method: req.method,
+        status,
+        user_id: options.userId ? options.userId(req) : (userIdFromContext() ?? defaultUserId(req)),
+        error_code: errorCodeOf(err),
+        fingerprint: fingerprintOf(err),
+        source: 'server',
+      });
+    }
     // A streamed or already-answered response can only go to Express's default handler.
     if (res.headersSent) return next(err);
+    const traceId = traceIdOf();
+    // The one id a user can read off a failed call and hand to support.
+    if (traceId) res.setHeader?.('X-Trace-Id', traceId);
     const message = err instanceof Error ? err.message : String(err);
-    res.status(status).json({ success: false, error: { message } });
+    res.status(status).json({
+      success: false,
+      error: { code: settledErrorCode(err) ?? 'Error', message },
+      traceId,
+    });
   };
+  Object.defineProperty(handler, KIT_ERROR_MIDDLEWARE, { value: true });
+  return handler;
 }
 
 /** The `request` Next 15 hands to `onRequestError`. */

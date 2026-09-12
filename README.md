@@ -25,6 +25,29 @@ export const GET = health(); // also at @agentage/observability/health
 `LOG_LEVEL`, always stderr (stdout is the JSON-RPC channel of a stdio MCP server).
 `log.error(err)` records the exception on the active span and marks it failed.
 
+## Wired for you (Express)
+
+An Express service that preloads the bootstrap gets the whole lane with **no code at all**:
+
+```
+node --import @agentage/observability/bootstrap dist/index.js
+```
+
+At `app.listen()` the kit mounts, around the routes the service already registered:
+
+- the **request log**, first in the stack, so 404s and rejections are counted too;
+- **GET `/health`** and **GET `/api/health`** liveness - unless the service answers those
+  paths itself, in which case its own route wins (readiness stays `health({ checks })`);
+- the **browser-error collector** on POST `/api/client-errors` when
+  `OTEL_CLIENT_ERROR_ORIGINS` is set, text/plain body and all;
+- the **error middleware**, last, so a thrown error becomes one `ErrorEvent` and the
+  standard envelope.
+
+The bootstrap also enriches the global `fetch` with the call site and target of a failed
+outbound call, and logs an `uncaughtException`/`unhandledRejection` as `fatal` before the
+process dies. Each piece has an off switch (see [Configuration](#configuration)), and
+mounting is idempotent - a service that wires a piece by hand keeps its own.
+
 > Everything below this line still works and still ships, but it is **deprecated and
 > removed in 1.0 final**: `createLogger`, `createRequestLog`, `errorMiddleware`,
 > `onRequestError`, `collectorHandler`, `wrapToolHandler`, `setMcpTool`, `markSpanError`,
@@ -174,11 +197,29 @@ in-app stack frame, `src/provision.ts:42:11 in provisionMemory` - node_modules, 
 like `23505`) or `logic`, the first split on an error dashboard: is it them, or is it us.
 It is always present. `target` names what an outbound call was reaching for,
 `POST api.test:8443/v1/memories/:id` - method, host with port, templated path, no query
-and no credentials. It is set by `tracedFetch` and found through any wrapping cause.
+and no credentials. It is set by the patched global `fetch` and found through any
+wrapping cause.
+
+The Express handler answers one envelope, and the trace id is on the response twice - in
+the body and as the `X-Trace-Id` header, so a failed call can be looked up from a browser's
+network tab:
+
+```jsonc
+{
+  "success": false,
+  "error": { "code": "ENOTFOUND", "message": "fetch failed" },
+  "traceId": "a3ce...",
+}
+```
+
+`code` is the same one the error line groups on: an application `code` wins, and a bare
+error name loses to the root cause's system code. A 4xx answers the envelope without
+emitting an `ErrorEvent` - a refused request is the API working - so pass
+`captureBelow500: true` where those are worth a line.
 
 ```ts
 import { errorMiddleware } from '@agentage/observability'; // Express: mount last
-app.use(errorMiddleware(log));
+app.use(errorMiddleware(log)); // the bootstrap does this for you
 
 export const onRequestError = onRequestErrorHook(log); // Next instrumentation.ts
 // import { onRequestError as onRequestErrorHook } from '@agentage/observability/next';
@@ -190,14 +231,15 @@ server.tool('memory__search', wrapToolHandler(log, 'memory__search', handler)); 
 tool arguments with credential-looking keys redacted and long values truncated.
 
 An outbound `fetch` that fails rejects with a bare `TypeError: fetch failed` whose stack
-holds no application frame and never says which call failed. `tracedFetch` is a drop-in
-replacement that captures the call site and the target before awaiting and attaches both
-to the error, so `frame` points at your code and `target` names the endpoint:
+holds no application frame and never says which call failed. The bootstrap wraps the global
+`fetch` so every outbound call attaches its call site and its target to the rejection -
+`frame` then points at your code and `target` names the endpoint, with nothing to import:
 
 ```ts
-import { tracedFetch } from '@agentage/observability';
-const res = await tracedFetch(`${backend}/api/memories`, { headers });
+const res = await fetch(`${backend}/api/memories`, { headers });
 ```
+
+(`tracedFetch` is now plain `fetch` and deprecated; `OBS_FETCH_PATCH=off` disables the wrap.)
 
 #### From the browser
 
@@ -209,6 +251,7 @@ OpenTelemetry, and does nothing outside a browser. It hooks `window.onerror`,
 import { installErrorReporter } from '@agentage/observability/browser';
 installErrorReporter({ endpoint: '/api/client-errors', service: 'web', userId: user?.id });
 
+// The bootstrap mounts exactly this when OTEL_CLIENT_ERROR_ORIGINS is set.
 app.post(
   '/api/client-errors',
   express.text({ type: '*/*' }),
@@ -341,7 +384,7 @@ without parsing the body.
 |                                     | `errorMiddleware(log, options?)`                   | Express error handler emitting the `ErrorEvent`      |
 |                                     | `onRequestError(log)`                              | Next `instrumentation.ts` error hook                 |
 |                                     | `wrapToolHandler(log, tool, handler)`              | MCP tool errors, including `isError` results         |
-|                                     | `tracedFetch(input, init?)`                        | `fetch` keeping call site + target on rejection      |
+|                                     | `tracedFetch(input, init?)`                        | Plain `fetch`; the bootstrap enriches the global one |
 |                                     | `collectorHandler(log, options)`                   | Sink for the browser reporter's events               |
 | `@agentage/observability/bootstrap` | (side effect)                                      | `node --import` trace bootstrap                      |
 | `@agentage/observability/next`      | `register`, `onRequestError`                       | Next.js `instrumentation.ts`                         |
@@ -368,6 +411,18 @@ Standard `OTEL_*` env, read by the SDK itself:
 | `COMMIT_SHA` / `BUILD_TIME`                    | Image build args, surfaced as `version`/`commit`/`buildTime`.                        |
 | `LOG_LEVEL`                                    | pino level for `createLogger` (default `info`).                                      |
 | `OTEL_BOT_IP_RANGES`                           | Comma-separated IPv4 CIDRs classified as `bot`. Unset = no IP rule.                  |
+| `OTEL_CLIENT_ERROR_ORIGINS`                    | Comma-separated origins allowed to POST client errors. Unset = no collector.         |
+
+What the bootstrap wires, and how to turn a piece off. Each takes the literal `off`:
+
+| Variable            | Off means                                                              |
+| ------------------- | ---------------------------------------------------------------------- |
+| `OBS_REQUEST_LOG`   | No request log line; mount `createRequestLog(log)` yourself.           |
+| `OBS_ERROR_MW`      | No error middleware, so errors reach Express's default handler.        |
+| `OBS_AUTO_HEALTH`   | No auto-mounted `/health` + `/api/health`.                             |
+| `OBS_COLLECTOR`     | No `/api/client-errors`, even with origins configured.                 |
+| `OBS_FETCH_PATCH`   | The global `fetch` is left alone (no call site or target on failures). |
+| `OBS_CRASH_CAPTURE` | No `uncaughtException`/`unhandledRejection` line; Node's default only. |
 
 `COMMIT_SHA` and `BUILD_TIME` must be redeclared as `ARG` **and promoted to `ENV` in the
 runner stage** - ARGs do not cross Docker stage boundaries, and without that your endpoint

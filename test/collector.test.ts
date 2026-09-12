@@ -5,7 +5,7 @@ import {
   parseClientEvents,
   type CollectorRequest,
   type CollectorResponse,
-} from '../src/collector.js';
+} from '../src/internal/patch/collector.js';
 
 function capture(): { lines: () => Record<string, unknown>[]; write: (msg: string) => void } {
   const raw: string[] = [];

@@ -1,12 +1,20 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { installFetchPatch, wrapFetch } from '../src/internal/patch/fetch.js';
 import { tracedFetch } from '../src/traced-fetch.js';
 import { errorFrameFields } from '../src/internal/error-fields.js';
 
-// `fetchTargetOf` is module-private since v1: the target is observable as the
+// The wrap installed on the global by the bootstrap, over a stub `fetch`.
+const patched = (inner: typeof fetch): typeof fetch => wrapFetch(inner);
+
+const rejecting = (err: unknown): typeof fetch =>
+  patched(() => Promise.reject(err) as ReturnType<typeof fetch>);
+
+// `fetchTargetOf` is module-private: the target is observable as the
 // `fetchTarget` stamped on a rejection, which is what the log line lifts.
-const targetOfCall = async (...args: Parameters<typeof tracedFetch>): Promise<unknown> => {
-  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
-  const thrown = await tracedFetch(...args).catch((err: unknown) => err);
+const targetOfCall = async (...args: Parameters<typeof fetch>): Promise<unknown> => {
+  const thrown = await rejecting(new TypeError('fetch failed'))(...args).catch(
+    (err: unknown) => err
+  );
   return (thrown as { fetchTarget?: string }).fetchTarget;
 };
 
@@ -14,12 +22,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('tracedFetch', () => {
+describe('fetch patch', () => {
   it('passes the response through untouched', async () => {
     const response = { ok: true } as Response;
-    const stub = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
-    await expect(tracedFetch('https://example.test/x', { method: 'POST' })).resolves.toBe(response);
-    expect(stub).toHaveBeenCalledWith('https://example.test/x', { method: 'POST' });
+    const inner = vi.fn(() => Promise.resolve(response));
+    await expect(
+      patched(inner as unknown as typeof fetch)('https://example.test/x', {
+        method: 'POST',
+      })
+    ).resolves.toBe(response);
+    expect(inner).toHaveBeenCalledWith('https://example.test/x', { method: 'POST' });
   });
 
   it('formats a call-site stack only when the fetch rejects', async () => {
@@ -32,11 +44,11 @@ describe('tracedFetch', () => {
       return frames.map((frame) => `    at ${String(frame)}`).join('\n');
     };
     try {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true } as Response);
-      await tracedFetch('https://example.test/ok');
+      await patched((() => Promise.resolve({ ok: true })) as unknown as typeof fetch)(
+        'https://example.test/ok'
+      );
       expect(formatted).not.toContain('fetch call site');
-      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
-      await tracedFetch('https://example.test/bad').catch(() => {});
+      await rejecting(new TypeError('fetch failed'))('https://example.test/bad').catch(() => {});
       expect(formatted).toContain('fetch call site');
     } finally {
       Error.prepareStackTrace = original;
@@ -44,9 +56,8 @@ describe('tracedFetch', () => {
   });
 
   it('keeps the awaiting caller in the captured call site', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
-    const namedOutboundCaller = async (): Promise<unknown> =>
-      await tracedFetch('https://example.test/x');
+    const call = rejecting(new TypeError('fetch failed'));
+    const namedOutboundCaller = async (): Promise<unknown> => await call('https://example.test/x');
     const thrown = await namedOutboundCaller().catch((err: unknown) => err);
     expect((thrown as { callSite?: string }).callSite).toContain('namedOutboundCaller');
   });
@@ -54,27 +65,23 @@ describe('tracedFetch', () => {
   it('attaches a non-enumerable callSite stack on rejection and rethrows', async () => {
     const failure = new TypeError('fetch failed');
     failure.stack = 'TypeError: fetch failed\n    at fetch (node:internal/deps/undici:1:1)';
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(failure);
-    const thrown = await tracedFetch('https://example.test/x').catch((err: unknown) => err);
+    const thrown = await rejecting(failure)('https://example.test/x').catch((err: unknown) => err);
     expect(thrown).toBe(failure);
-    const callSite = (thrown as { callSite?: string }).callSite;
-    expect(typeof callSite).toBe('string');
+    expect(typeof (thrown as { callSite?: string }).callSite).toBe('string');
     expect(Object.keys(failure)).not.toContain('callSite');
     // The captured stack is what gives the frame extractor an application frame.
-    expect(errorFrameFields(failure).frame).toContain('traced-fetch');
+    expect(errorFrameFields(failure).frame).toContain('fetch-patch.test');
   });
 
   it('leaves a non-Error rejection alone', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue('nope');
-    await expect(tracedFetch('https://example.test/x')).rejects.toBe('nope');
+    await expect(rejecting('nope')('https://example.test/x')).rejects.toBe('nope');
   });
 
   it('attaches a non-enumerable fetchTarget on rejection', async () => {
     const failure = new TypeError('fetch failed');
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(failure);
-    const thrown = await tracedFetch('https://api.test/v1/memories/42', { method: 'delete' }).catch(
-      (err: unknown) => err
-    );
+    const thrown = await rejecting(failure)('https://api.test/v1/memories/42', {
+      method: 'delete',
+    }).catch((err: unknown) => err);
     expect((thrown as { fetchTarget?: string }).fetchTarget).toBe(
       'DELETE api.test/v1/memories/:id'
     );
@@ -84,15 +91,15 @@ describe('tracedFetch', () => {
   it('keeps a fetchTarget an outer wrapper already set', async () => {
     const failure = new TypeError('fetch failed');
     Object.defineProperty(failure, 'fetchTarget', { value: 'GET first.test/', configurable: true });
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(failure);
-    const thrown = await tracedFetch('https://second.test/x').catch((err: unknown) => err);
+    const thrown = await rejecting(failure)('https://second.test/x').catch((err: unknown) => err);
     expect((thrown as { fetchTarget?: string }).fetchTarget).toBe('GET first.test/');
   });
 
   it('finds the target through a wrapping cause chain', async () => {
     const failure = new TypeError('fetch failed');
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(failure);
-    const thrown = await tracedFetch('https://api.test/v1/ping').catch((err: unknown) => err);
+    const thrown = await rejecting(failure)('https://api.test/v1/ping').catch(
+      (err: unknown) => err
+    );
     const wrapped = new Error('provisioning failed', {
       cause: new Error('inner', { cause: thrown }),
     });
@@ -102,6 +109,50 @@ describe('tracedFetch', () => {
   it('has no target when nothing in the chain carries one', () => {
     expect(errorFrameFields(new Error('plain')).target).toBeUndefined();
     expect(errorFrameFields('not an error').target).toBeUndefined();
+  });
+});
+
+describe('installFetchPatch', () => {
+  const restore = (original: typeof fetch): void => {
+    globalThis.fetch = original;
+  };
+
+  it('wraps the global fetch once and enriches its rejections', async () => {
+    const original = globalThis.fetch;
+    try {
+      const failure = new TypeError('fetch failed');
+      globalThis.fetch = (() => Promise.reject(failure)) as unknown as typeof fetch;
+      expect(installFetchPatch({} as NodeJS.ProcessEnv)).toBe(true);
+      const wrapped = globalThis.fetch;
+      // Second install is a no-op: a wrapped wrapper would double every stack.
+      expect(installFetchPatch({} as NodeJS.ProcessEnv)).toBe(false);
+      expect(globalThis.fetch).toBe(wrapped);
+      const thrown = await globalThis
+        .fetch('https://api.test/v1/ping')
+        .catch((err: unknown) => err);
+      expect((thrown as { fetchTarget?: string }).fetchTarget).toBe('GET api.test/v1/ping');
+    } finally {
+      restore(original);
+    }
+  });
+
+  it('installs nothing when OBS_FETCH_PATCH is off', () => {
+    const original = globalThis.fetch;
+    try {
+      expect(installFetchPatch({ OBS_FETCH_PATCH: 'off' } as NodeJS.ProcessEnv)).toBe(false);
+      expect(globalThis.fetch).toBe(original);
+    } finally {
+      restore(original);
+    }
+  });
+});
+
+describe('tracedFetch', () => {
+  it('is now plain fetch - the enrichment lives on the global', async () => {
+    const response = { ok: true } as Response;
+    const stub = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+    await expect(tracedFetch('https://example.test/x', { method: 'POST' })).resolves.toBe(response);
+    expect(stub).toHaveBeenCalledWith('https://example.test/x', { method: 'POST' });
   });
 });
 

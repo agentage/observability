@@ -1,66 +1,13 @@
-import { routeFromUrl } from './internal/span-names.js';
-
 type FetchArgs = Parameters<typeof fetch>;
 type FetchResponse = Awaited<ReturnType<typeof fetch>>;
 
-const isRequest = (input: FetchArgs[0]): input is Request =>
-  typeof input === 'object' && input !== null && 'method' in input && 'url' in input;
-
-const urlOf = (input: FetchArgs[0]): string =>
-  isRequest(input) ? input.url : typeof input === 'string' ? input : String(input);
-
-const methodOf = (input: FetchArgs[0], init?: FetchArgs[1]): string =>
-  (init?.method ?? (isRequest(input) ? input.method : undefined) ?? 'GET').toUpperCase();
-
 /**
- * `POST api.example.com:8443/v1/memories/:id` - what was being called, at the
- * cardinality a facet can group on. Credentials are dropped with the rest of the
- * authority; the path is templated by the same rule that names fetch spans.
+ * Plain `fetch`. The call-site and target enrichment it used to add is now
+ * installed on the global `fetch` by the bootstrap, so every outbound call gets
+ * it without an import.
+ *
+ * @deprecated Call `fetch` directly; removed in 1.0 final.
  */
-function fetchTargetOf(input: FetchArgs[0], init?: FetchArgs[1]): string {
-  const raw = urlOf(input);
-  const method = methodOf(input, init);
-  let host = '';
-  try {
-    // `host` (not `hostname`) keeps a non-default port; `username`/`password` are left behind.
-    host = new URL(raw).host;
-  } catch {
-    host = '';
-  }
-  return `${method} ${host}${routeFromUrl(raw)}`;
-}
-
-const attach = (err: Error, key: string, value: string): void => {
-  if (key in err) return;
-  Object.defineProperty(err, key, {
-    value,
-    enumerable: false,
-    configurable: true,
-    writable: true,
-  });
-};
-
-/**
- * `fetch` with the calling stack preserved: an undici rejection (`TypeError: fetch
- * failed`) carries no application frame, so the call site is captured in the
- * rejection branch and attached to the thrown error as a non-enumerable
- * `callSite`, alongside a `fetchTarget` naming what was being called (the
- * rejection does not say).
- */
-export async function tracedFetch(
-  input: FetchArgs[0],
-  init?: FetchArgs[1]
-): Promise<FetchResponse> {
-  try {
-    return await fetch(input, init);
-  } catch (err) {
-    if (err instanceof Error) {
-      // Built here, not before the await: V8 async stack traces still reach the
-      // awaiting caller, and the success path pays for neither.
-      const callSite = new Error('fetch call site').stack;
-      if (callSite) attach(err, 'callSite', callSite);
-      attach(err, 'fetchTarget', fetchTargetOf(input, init));
-    }
-    throw err;
-  }
+export function tracedFetch(input: FetchArgs[0], init?: FetchArgs[1]): Promise<FetchResponse> {
+  return fetch(input, init);
 }

@@ -1,4 +1,3 @@
-import { register } from 'node:module';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -23,6 +22,7 @@ import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
 import { type TracingConfig } from './config.js';
 import { instrumentations } from './instrumentations.js';
+import { registerLoaderHook } from './patch/loader-hook.js';
 import { FetchSpanNameProcessor } from './span-names.js';
 
 const DIAG_LEVELS: Record<string, DiagLogLevel> = {
@@ -93,9 +93,7 @@ export async function startTracing(config: TracingConfig): Promise<void> {
 
   // ESM-only patching: `--require`-style monkeypatching cannot see `import`ed
   // modules, so Express/HTTP spans silently vanish without this loader hook.
-  // register() (not the deprecated --experimental-loader flag) is the form that
-  // survives Node 22 through 26.
-  register('@opentelemetry/instrumentation/hook.mjs', import.meta.url);
+  registerLoaderHook();
 
   const provider = new NodeTracerProvider({
     resource: resourceFor(config),

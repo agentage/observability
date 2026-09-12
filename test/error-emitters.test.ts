@@ -1,7 +1,22 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { trace } from '@opentelemetry/api';
 import { createLogger } from '../src/log.js';
-import { errorMiddleware, onRequestError, type ErrorResponse } from '../src/error-emitters.js';
+import {
+  errorMiddleware,
+  onRequestError,
+  type ErrorResponse,
+} from '../src/internal/patch/error-emitters.js';
 import { redactArgs, errorCodeOf, fingerprintOf } from '../src/internal/error-fields.js';
+
+const SPAN_CONTEXT = {
+  traceId: 'a3ce929d0e0e4736aab7ab4f8422d25c',
+  spanId: '41f9e6862b214d21',
+  traceFlags: 1,
+};
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function capture(): { lines: () => Record<string, unknown>[]; write: (msg: string) => void } {
   const raw: string[] = [];
@@ -14,11 +29,18 @@ function capture(): { lines: () => Record<string, unknown>[]; write: (msg: strin
   };
 }
 
-function res(headersSent = false): ErrorResponse & { code?: number; body?: unknown } {
+function res(
+  headersSent = false
+): ErrorResponse & { code?: number; body?: unknown; headers: Record<string, string> } {
   const r = {
     headersSent,
     code: undefined as number | undefined,
     body: undefined as unknown,
+    headers: {} as Record<string, string>,
+    setHeader(name: string, value: string) {
+      r.headers[name] = value;
+      return r;
+    },
     status(code: number) {
       r.code = code;
       return r;
@@ -34,7 +56,9 @@ function res(headersSent = false): ErrorResponse & { code?: number; body?: unkno
 describe('errorMiddleware', () => {
   it('emits the standard event and answers the error envelope', () => {
     const out = capture();
-    const handler = errorMiddleware(createLogger({ service: 'api', destination: out }));
+    const handler = errorMiddleware(createLogger({ service: 'api', destination: out }), {
+      captureBelow500: true,
+    });
     const err = Object.assign(new Error('nope'), { status: 404, name: 'NotFoundError' });
     const response = res();
     const next = vi.fn();
@@ -60,8 +84,60 @@ describe('errorMiddleware', () => {
     expect(line.service).toBe('api');
     expect((line.err as { type: string; stack: string }).stack).toContain('nope');
     expect(response.code).toBe(404);
-    expect(response.body).toEqual({ success: false, error: { message: 'nope' } });
+    expect(response.body).toEqual({
+      success: false,
+      error: { code: 'NotFoundError', message: 'nope' },
+      traceId: '',
+    });
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it('answers 4xx without emitting an event by default', () => {
+    const out = capture();
+    const handler = errorMiddleware(createLogger({ service: 'api', destination: out }));
+    const response = res();
+    handler(
+      Object.assign(new Error('no such memory'), { status: 404 }),
+      { method: 'GET', path: '/api/memories/x' } as never,
+      response,
+      vi.fn()
+    );
+    expect(out.lines()).toHaveLength(0);
+    expect(response.code).toBe(404);
+    expect(response.body).toEqual({
+      success: false,
+      error: { code: 'Error', message: 'no such memory' },
+      traceId: '',
+    });
+  });
+
+  it('carries the trace id in the body and the X-Trace-Id header', () => {
+    const out = capture();
+    vi.spyOn(trace, 'getActiveSpan').mockReturnValue(trace.wrapSpanContext(SPAN_CONTEXT));
+    const handler = errorMiddleware(createLogger({ service: 'api', destination: out }));
+    const response = res();
+    handler(new Error('boom'), { method: 'GET', path: '/x' } as never, response, vi.fn());
+    expect(response.headers['X-Trace-Id']).toBe(SPAN_CONTEXT.traceId);
+    expect((response.body as { traceId: string }).traceId).toBe(SPAN_CONTEXT.traceId);
+  });
+
+  it('sets no trace header when no span is active', () => {
+    const out = capture();
+    const handler = errorMiddleware(createLogger({ service: 'api', destination: out }));
+    const response = res();
+    handler(new Error('boom'), { method: 'GET', path: '/x' } as never, response, vi.fn());
+    expect(response.headers).toEqual({});
+  });
+
+  it('reports the root cause system code, not the wrapper name', () => {
+    const out = capture();
+    const handler = errorMiddleware(createLogger({ service: 'api', destination: out }));
+    const response = res();
+    const err = new TypeError('fetch failed', {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND api.test'), { code: 'ENOTFOUND' }),
+    });
+    handler(err, { method: 'GET', path: '/x' } as never, response, vi.fn());
+    expect((response.body as { error: { code: string } }).error.code).toBe('ENOTFOUND');
   });
 
   it('passes an explicit fingerprint through and falls back to 500 + req.path', () => {
@@ -98,7 +174,11 @@ describe('errorMiddleware', () => {
     const [line] = out.lines();
     expect(line.user_id).toBe('u9');
     expect(line.route).toBeUndefined();
-    expect(response.body).toEqual({ success: false, error: { message: 'plain failure' } });
+    expect(response.body).toEqual({
+      success: false,
+      error: { code: 'Error', message: 'plain failure' },
+      traceId: '',
+    });
   });
 });
 
