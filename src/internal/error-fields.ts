@@ -46,6 +46,8 @@ export interface ClientErrorEvent {
   url?: string;
   user_agent?: string;
   user_id?: string;
+  /** The action trace id the browser minted - joins this error to its server request. */
+  trace_id?: string;
 }
 
 /** What emitters pass alongside `err`; extra keys are allowed and kept. */

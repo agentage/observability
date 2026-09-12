@@ -266,8 +266,8 @@ OpenTelemetry, and does nothing outside a browser. It hooks `window.onerror`,
 `unhandledrejection` and `console.error`, then batches over `sendBeacon`:
 
 ```ts
-import { installErrorReporter } from '@agentage/observability/browser';
-installErrorReporter({ endpoint: '/api/client-errors', service: 'web', userId: user?.id });
+import { observeBrowser } from '@agentage/observability/browser';
+observeBrowser({ endpoint: '/api/client-errors', service: 'web', userId: user?.id });
 
 // The bootstrap mounts exactly this when OTEL_CLIENT_ERROR_ORIGINS is set.
 app.post(
@@ -284,6 +284,40 @@ messages, and never throws. The collector whitelists the payload - unknown keys 
 your logs - and re-emits each event as the same error line with `source: 'client'` and the
 reporting app's `service`. `sendBeacon` posts `text/plain`, so parse the body as text (or
 `express.json({ type: '*/*' })`).
+
+In a React app, mount the component instead - same options, `'use client'` already on it:
+
+```tsx
+import { ErrorReporter } from '@agentage/observability/react';
+// app/layout.tsx
+<ErrorReporter endpoint="/api/client-errors" service="dashboard" userId={user?.id} />;
+```
+
+(`installErrorReporter` is the old name for `observeBrowser` and still works; it is
+deprecated and goes away in 1.0 final.)
+
+#### Error id: surfacing a trace id to users
+
+`observeBrowser` also mints one W3C trace id per **user action** - at load, then again on every
+history navigation - and sends it as a `traceparent` header on **same-origin** `fetch` calls,
+with a fresh span-id half per request. Cross-origin requests are never touched (CORS, and the
+id is nobody else's business). No OpenTelemetry ships to the browser: this is the wire format,
+nothing more. `opts.propagate: false` turns the `fetch` patch off.
+
+Servers already extract that header (W3C is the default propagator), so the click, the
+requests it fired, and the error line that came back all share one id - and because the
+browser sets the sampled flag, `parentbased_traceidratio` keeps a **real user action traced in
+full** even where the service samples at a ratio. Bots and crons, which send no traceparent,
+still fall to the cheap env ratio.
+
+The same id is on every reported client error (`trace_id`) and readable two ways, so an error
+screen can show the user something support can search on:
+
+```ts
+import { getTraceId } from '@agentage/observability/browser';
+const id = getTraceId(); // or document.documentElement.dataset.obsTrace
+// "Something went wrong. Error id: a3ce929d0e0e4736aab7ab4f8422d25c"
+```
 
 ### Traces
 
@@ -406,6 +440,10 @@ without parsing the body.
 |                                     | `collectorHandler(log, options)`                   | Sink for the browser reporter's events               |
 | `@agentage/observability/bootstrap` | (side effect)                                      | `node --import` trace bootstrap                      |
 | `@agentage/observability/next`      | `register`, `onRequestError`                       | Next.js `instrumentation.ts`                         |
+| `@agentage/observability/browser`   | `observeBrowser(options)`                          | Client errors + one trace id per user action         |
+|                                     | `getTraceId()`                                     | The action's trace id, for an "error id" in the UI   |
+|                                     | `installErrorReporter(options)`                    | _deprecated_ - renamed to `observeBrowser`           |
+| `@agentage/observability/react`     | `<ErrorReporter {...options} />`                   | `observeBrowser` as a client component               |
 
 `log.error(err)` is what the removed `captureError(log, err)` did: the logger lifts `cause`,
 `frame`, `target`, `category` and `error_code` onto the line by itself. The `logger` /
