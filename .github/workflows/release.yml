@@ -1,7 +1,8 @@
 name: Publish Package
 
-# Publishes @agentage/observability to npm. Manual (workflow_dispatch) or on a release
-# commit to master; never on an ordinary push. Requires an NPM_TOKEN repo secret.
+# Publishes @agentage/observability to npm. Manual (workflow_dispatch) or whenever
+# package.json lands on master; a version already on npm is a no-op skip, so an
+# ordinary dependency bump costs one cheap run. Requires an NPM_TOKEN repo secret.
 
 on:
   push:
@@ -18,32 +19,11 @@ env:
   NODE_VERSION: '22'
 
 jobs:
-  release-gate:
-    name: Release gate
-    runs-on: ubuntu-latest
-    outputs:
-      is-release: ${{ steps.check.outputs.is-release }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 5
-      - id: check
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "is-release=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          MSG=$(git log -1 --pretty=%s)
-          if echo "$MSG" | grep -qE "(^Release v|^chore: prepare release|^chore\(release\))"; then
-            echo "is-release=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "is-release=false" >> "$GITHUB_OUTPUT"
-            echo "Not a release commit - skipping publish."
-          fi
-
+  # No commit-subject release gate: squash merges rewrite the subject to the PR title,
+  # so a fix-titled PR carrying a version bump silently skipped publish. The
+  # "already on npm" check below is the only idempotency gate this needs.
   publish:
     name: Publish to npm
-    needs: [release-gate]
-    if: needs.release-gate.outputs.is-release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -67,13 +47,31 @@ jobs:
           echo "tag=v${version}" >> "$GITHUB_OUTPUT"
       - if: steps.ver.outputs.publish == 'true'
         run: npm run verify
-      - if: steps.ver.outputs.publish == 'true'
+      - name: Publish
+        if: steps.ver.outputs.publish == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
-      - if: steps.ver.outputs.publish == 'true'
         run: |
+          set -o pipefail
+          if npm publish --access public --provenance 2>&1 | tee publish.log; then
+            exit 0
+          fi
+          # npm's CDN 404-caches a just-published version for ~5min, so the check above
+          # can report "not published" for a version the registry already holds.
+          if grep -qiE 'EPUBLISHCONFLICT|E403|cannot publish over' publish.log; then
+            echo "Version already on the registry - treating the conflict as a skip."
+            exit 0
+          fi
+          exit 1
+      - name: Tag
+        if: steps.ver.outputs.publish == 'true'
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          # publish may have been a conflict-skip, in which case the tag already exists
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "${TAG} already tagged."; exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ steps.ver.outputs.tag }}" -m "Release ${{ steps.ver.outputs.tag }}"
-          git push origin "${{ steps.ver.outputs.tag }}"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"

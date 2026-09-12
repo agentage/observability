@@ -1,7 +1,8 @@
 name: Release Train
 
 # Fully automated Friday MINOR release of @agentage/observability to npm. No human
-# step on the happy path. Weekly cadence, always a minor bump (product decision).
+# step on the happy path. Weekly cadence, minor bump (product decision); a manual
+# dispatch may pick `major` instead.
 # Level 0: no internal @agentage npm deps, npm-only publish (no MCP registry, no
 # GitHub release - release.yml tags and publishes, nothing else).
 #
@@ -20,6 +21,14 @@ on:
     # 16:00 UTC Friday; org triage merges from 17:00 UTC.
     - cron: '37 4 * * 6'
   workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump level (scheduled runs are always minor)'
+        type: choice
+        options:
+          - minor
+          - major
+        default: minor
 
 permissions:
   contents: write
@@ -55,7 +64,7 @@ jobs:
           echo "Dependabot PR(s) still open after wait - releasing without them." | tee -a "$GITHUB_STEP_SUMMARY"
 
   release:
-    name: 🚝 Cut minor release
+    name: 🚝 Cut release
     needs: dependabot-quiescence
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -97,16 +106,18 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bump minor version (package.json)
+      - name: Bump version (package.json)
         id: bump
         if: steps.detect.outputs.release == 'true'
+        env:
+          BUMP: ${{ inputs.bump || 'minor' }}
         run: |
           set -euo pipefail
           NEW=$(node -e '
             const fs = require("fs");
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
             const [a, b] = pkg.version.split(".").map(Number);
-            const next = `${a}.${b + 1}.0`;
+            const next = process.env.BUMP === "major" ? `${a + 1}.0.0` : `${a}.${b + 1}.0`;
             pkg.version = next;
             fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
             console.log(next);

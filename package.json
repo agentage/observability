@@ -14,8 +14,6 @@
   "engines": {
     "node": ">=22.13"
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -36,7 +34,8 @@
     "./health": {
       "types": "./dist/health.d.ts",
       "import": "./dist/health.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"

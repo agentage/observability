@@ -398,8 +398,10 @@ you, and a single slip breaks every app that imports the module through a shared
 
 ## Release
 
-A `chore(release): X.Y.Z` squash-merge subject on `master` publishes to npm via GitHub
-Actions; the workflow skips any version already published. Changes: [CHANGELOG.md](./CHANGELOG.md).
+A version bump to `package.json` on `master` publishes to npm via GitHub Actions; the
+workflow skips any version already published, so any other change to the file is a no-op.
+The Friday release train cuts the bump itself (minor by default, `major` on manual
+dispatch). Changes: [CHANGELOG.md](./CHANGELOG.md).
 
 ## License
 
