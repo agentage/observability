@@ -10,7 +10,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       // Runtime-integration modules: covered by smoke:dist + the --import smoke,
-      // not unit-testable without starting the NodeSDK.
+      // not unit-testable without starting a tracer provider.
       exclude: ['src/tracing.ts', 'src/bootstrap.ts', 'dist/**', '*.config.ts'],
       thresholds: { branches: 70, functions: 70, lines: 70, statements: 70 },
     },

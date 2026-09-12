@@ -220,6 +220,15 @@ Then set `OTEL_SERVICE_NAME` and `OTEL_EXPORTER_OTLP_ENDPOINT` (see
 [Configuration](#configuration)). Without both, the SDK is never even imported and the
 process behaves exactly like an uninstrumented one - logging still works.
 
+HTTP, Express and fetch spans come out of the box. Datastore and queue spans are **optional
+peers** - install the ones your service actually uses and the bootstrap picks them up:
+
+```bash
+npm install @opentelemetry/instrumentation-pg        # also -mongodb, -redis, -amqplib
+```
+
+Not installed means not traced, silently: no warning, no failed boot.
+
 ## The /health envelope
 
 Every service answers the same shape, so one probe reads your whole estate:
@@ -349,7 +358,8 @@ recurring way to fail a healthy container.
 Node services emit exactly one SERVER span per request (`{method} {route}`, status code,
 duration; scanner probes on unmatched routes collapse to `{method} (unmatched)`) plus CLIENT
 spans for outbound http/fetch calls, which carry W3C propagation to the next service. No
-Express layer spans, no fs/dns/db auto-spans. Next apps mirror this through the `/next`
+Express layer spans, no fs/dns auto-spans, and datastore spans only for the optional
+instrumentation peers you installed. Next apps mirror this through the `/next`
 entry (noise sampler + span-name normalizer).
 
 Health probes (`/health`, `/api/health`, `/status`, `/hc`) are recorded in neither
