@@ -9,7 +9,7 @@ export {
   type NextErrorContext,
   type NextErrorRequest,
   type NextRequestErrorHandler,
-} from './error-emitters.js';
+} from './internal/patch/error-emitters.js';
 
 /**
  * Next.js entry: re-export from `instrumentation.ts` -

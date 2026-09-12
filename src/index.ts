@@ -34,21 +34,21 @@ export {
   type NextErrorContext,
   type NextErrorRequest,
   type NextRequestErrorHandler,
-} from './error-emitters.js';
+} from './internal/patch/error-emitters.js';
 export {
   collectorHandler,
   type CollectorHandler,
   type CollectorOptions,
   type CollectorRequest,
   type CollectorResponse,
-} from './collector.js';
+} from './internal/patch/collector.js';
 export {
   createRequestLog,
   type RequestLogMiddleware,
   type RequestLogOptions,
   type RequestLogRequest,
   type RequestLogResponse,
-} from './request-log.js';
+} from './internal/patch/request-log.js';
 export {
   setMcpTool,
   markSpanError,

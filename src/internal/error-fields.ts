@@ -272,6 +272,17 @@ export interface ErrorFrameFields {
 export const toError = (err: unknown): Error =>
   err instanceof Error ? err : new Error(String(err));
 
+/**
+ * The code an error line settles on: an application `code` wins, and the error
+ * NAME (no code at all) loses to the root cause's system code - ENOTFOUND beats
+ * TypeError for grouping. Same rule the logger applies to a lifted line.
+ */
+export function settledErrorCode(err: unknown): string | undefined {
+  const own = errorCodeOf(err);
+  const named = !own || (err instanceof Error && own === err.name);
+  return named ? (causeCodeOf(err) ?? own) : own;
+}
+
 /** Cause summary, in-app frame, system `code` fallback, fetch target and category. */
 export function errorFrameFields(err: unknown): ErrorFrameFields {
   const fields: ErrorFrameFields = {};
