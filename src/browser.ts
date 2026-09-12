@@ -1,4 +1,4 @@
-import type { ClientErrorEvent } from './error-event.js';
+import type { ClientErrorEvent } from './internal/error-fields.js';
 
 export interface ErrorReporterOptions {
   /** Collector URL, absolute or same-origin path. */

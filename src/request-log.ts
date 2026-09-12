@@ -1,14 +1,9 @@
 import { context as otelContext } from '@opentelemetry/api';
 import type { Logger } from 'pino';
-import {
-  CLIENT_TYPE_HEADER,
-  classifyClientType,
-  contextWithUserType,
-  stampUserType,
-  type UserType,
-} from './client-type.js';
-import { isHealthProbePath } from './config.js';
-import { readableRoute, routeFromUrl } from './span-names.js';
+import { CLIENT_TYPE_HEADER, classifyClientType, type UserType } from './internal/classify.js';
+import { contextWithUserType, enterUserScope, stampUserType } from './internal/context.js';
+import { isHealthProbePath } from './internal/config.js';
+import { readableRoute, routeFromUrl } from './internal/span-names.js';
 
 /** Structurally typed so the kit stays dependency-light - no express import. */
 export interface RequestLogRequest {
@@ -33,7 +28,10 @@ export interface RequestLogOptions {
    * path; pass your own to override, or `() => undefined` to drop the field.
    */
   classify?: (req: RequestLogRequest) => string | undefined;
-  /** Where the user id lives on your request; defaults to `req.user.id`. */
+  /**
+   * Where the user id lives on your request. Only consulted when the handler
+   * never called `setUser`; defaults to `req.user.id`.
+   */
   userId?: (req: RequestLogRequest) => string | undefined;
   /** Log message; defaults to `'request'`. */
   message?: string;
@@ -137,12 +135,14 @@ export function createRequestLog(
   log: Logger,
   options: RequestLogOptions = {}
 ): RequestLogMiddleware {
-  const userId = options.userId ?? defaultUserId;
   const message = options.message ?? 'request';
   const skipHealthProbes = options.skipHealthProbes ?? true;
   const botIpRanges = options.botIpRanges ?? parseIpRanges(process.env.OTEL_BOT_IP_RANGES);
   return (req, res, next) => {
     const start = process.hrtime.bigint();
+    // Opened before the handlers run: `setUser` writes into this scope's slot,
+    // which is read back at 'finish' - long after the context itself is gone.
+    const scope = enterUserScope();
     // Captured at entry: Express rewrites req.path/baseUrl to be router-relative
     // once a mounted router handles the request, so at 'finish' it is truncated.
     const originalPath = (req.originalUrl ?? req.path).split('?')[0];
@@ -163,7 +163,7 @@ export function createRequestLog(
             route: matched ?? UNMATCHED_ROUTE,
             status: res.statusCode,
             duration_ms: Math.round(durationMs),
-            user_id: userId(req),
+            user_id: options.userId ? options.userId(req) : (scope.slot.id ?? defaultUserId(req)),
             ...(userType === undefined ? {} : { user_type: userType }),
           },
           message
@@ -171,12 +171,14 @@ export function createRequestLog(
       });
     }
     // Only the canonical UserType values reach spans; a custom classifier's own
-    // vocabulary still lands on the log line.
-    if (userType === undefined) return next();
-    // Baggage, not just the span attribute: descendant spans are created by code
-    // that never sees the request.
-    otelContext.with(contextWithUserType(userType as UserType), () => {
-      stampUserType();
+    // vocabulary still lands on the log line. Baggage, not just the span
+    // attribute: descendant spans are created by code that never sees the request.
+    const withType =
+      userType === undefined
+        ? scope.context
+        : contextWithUserType(userType as UserType, scope.context);
+    otelContext.with(withType, () => {
+      if (userType !== undefined) stampUserType();
       next();
     });
   };

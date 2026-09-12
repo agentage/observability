@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SpanKind, ROOT_CONTEXT } from '@opentelemetry/api';
 import { SamplingDecision, type Sampler } from '@opentelemetry/sdk-trace-base';
-import { NextNoiseSampler, samplerFromEnv } from '../src/noise-sampler.js';
+import { NextNoiseSampler, samplerFromEnv } from '../src/internal/sampler.js';
 
 const TRACE_ID = 'a3ce929d0e0e4736aab7ab4f8422d25c';
 

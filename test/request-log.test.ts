@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { context as otelContext, trace } from '@opentelemetry/api';
 import { createRequestLog, type RequestLogRequest } from '../src/request-log.js';
-import { userTypeFromContext } from '../src/client-type.js';
+import { userTypeFromContext } from '../src/internal/context.js';
 import { useStackContextManager } from './stack-context-manager.js';
 import type { Logger } from 'pino';
 

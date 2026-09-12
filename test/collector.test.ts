@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createLogger } from '../src/logger.js';
+import { createLogger } from '../src/log.js';
 import {
   collectorHandler,
   parseClientEvents,

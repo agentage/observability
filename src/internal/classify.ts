@@ -1,11 +1,3 @@
-import {
-  context as otelContext,
-  propagation,
-  trace,
-  type Context,
-  type Span,
-} from '@opentelemetry/api';
-
 /**
  * Identifies the origin of a request. Real browsers send no header; internal
  * server-to-server calls and the e2e suite tag themselves, so test traffic is
@@ -112,38 +104,4 @@ export const classifyClientType = (input: ClientTypeInput): UserType => {
   }
   if (ua === '' || MACHINE_UA.test(ua)) return UserType.Service;
   return UserType.User;
-};
-
-const isUserType = (value: unknown): value is UserType =>
-  typeof value === 'string' && Object.values(UserType).includes(value as UserType);
-
-/**
- * A context carrying `user_type` in OTel baggage, so spans created anywhere
- * under the request - including in code that never sees the request object -
- * can stamp the same value.
- */
-export const contextWithUserType = (
-  userType: UserType,
-  ctx: Context = otelContext.active()
-): Context => {
-  const baggage = propagation.getBaggage(ctx) ?? propagation.createBaggage();
-  return propagation.setBaggage(ctx, baggage.setEntry(USER_TYPE_FIELD, { value: userType }));
-};
-
-/** The `user_type` carried by the active (or given) context, if it was classified. */
-export const userTypeFromContext = (ctx: Context = otelContext.active()): UserType | undefined => {
-  const value = propagation.getBaggage(ctx)?.getEntry(USER_TYPE_FIELD)?.value;
-  return isUserType(value) ? value : undefined;
-};
-
-/**
- * Stamp `user_type` on a span from the request's context - call it when you
- * create a span the kit does not own (an MCP tool span, a worker job span).
- * Returns the stamped value, or undefined when nothing was classified.
- */
-export const stampUserType = (span?: Span): UserType | undefined => {
-  const userType = userTypeFromContext();
-  if (!userType) return undefined;
-  (span ?? trace.getActiveSpan())?.setAttribute(USER_TYPE_FIELD, userType);
-  return userType;
 };

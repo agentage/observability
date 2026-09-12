@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { symbols } from 'pino';
-import { createLogger } from '../src/logger.js';
+import { createLogger } from '../src/log.js';
 
 // The API's default context manager is a no-op, so tests stub the active span
 // instead of registering a real AsyncLocalStorage manager.
@@ -263,11 +263,76 @@ describe('stdio safety', () => {
   const streamOf = (log: unknown): { fd?: number } =>
     (log as Record<symbol, { fd?: number }>)[symbols.streamSym];
 
-  it('stream stderr routes to fd 2, keeping stdout clean for JSON-RPC', () => {
-    expect(streamOf(createLogger({ service: 'stdio-mcp', stream: 'stderr' })).fd).toBe(2);
+  it('always routes to fd 2, keeping stdout clean for JSON-RPC', () => {
+    expect(streamOf(createLogger({ service: 'stdio-mcp' })).fd).toBe(2);
+    expect(streamOf(createLogger({ service: 'agentage-auth' })).fd).toBe(2);
+  });
+});
+
+describe('the log singleton', () => {
+  const fresh = async (service?: string) => {
+    vi.resetModules();
+    if (service === undefined) vi.stubEnv('OTEL_SERVICE_NAME', '');
+    else vi.stubEnv('OTEL_SERVICE_NAME', service);
+    return import('../src/log.js');
+  };
+
+  const stderr = (): { lines: () => Record<string, unknown>[] } => {
+    const raw: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      raw.push(String(chunk));
+      return true;
+    });
+    return {
+      lines: () =>
+        raw.flatMap((chunk) => chunk.split('\n').filter(Boolean)).map((l) => JSON.parse(l)),
+    };
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
-  it('defaults to stdout for HTTP services', () => {
-    expect(streamOf(createLogger({ service: 'agentage-auth' })).fd).toBe(1);
+  it('reads OTEL_SERVICE_NAME at first use, not at import', async () => {
+    vi.resetModules();
+    vi.stubEnv('OTEL_SERVICE_NAME', '');
+    const { log } = await import('../src/log.js');
+    // The env a service loads AFTER importing the kit still wins.
+    vi.stubEnv('OTEL_SERVICE_NAME', 'agentage-web');
+    const out = stderr();
+    log.info('hi');
+    expect(out.lines()[0].service).toBe('agentage-web');
+  });
+
+  it('writes to stderr, so a stdio MCP server keeps stdout for JSON-RPC', async () => {
+    const { log } = await fresh('stdio-mcp');
+    const out = stderr();
+    log.info({ kind: 'http' }, 'request');
+    const [line] = out.lines();
+    expect(line.msg).toBe('request');
+    expect(line.service).toBe('stdio-mcp');
+  });
+
+  it('falls back to unknown and says so, once', async () => {
+    const { log } = await fresh();
+    const out = stderr();
+    log.info('first');
+    log.info('second');
+    const lines = out.lines();
+    expect(lines[0].service).toBe('unknown');
+    expect(lines[0].msg).toContain('OTEL_SERVICE_NAME is not set');
+    expect(lines.filter((line) => line.service_name_missing)).toHaveLength(1);
+    expect(lines.map((line) => line.msg).slice(1)).toEqual(['first', 'second']);
+  });
+
+  it('is one logger, and still enriches errors and takes children', async () => {
+    const { log } = await fresh('agentage-web');
+    const out = stderr();
+    expect(log.level).toBe('info');
+    log.child({ component: 'store' }).error(new Error('kaput'));
+    const [line] = out.lines();
+    expect(line.component).toBe('store');
+    expect(line.category).toBe('logic');
+    expect(line.msg).toBe('kaput');
   });
 });

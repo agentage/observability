@@ -1,6 +1,6 @@
 import type { Logger } from 'pino';
-import { toError } from './error-frame.js';
-import { errorCodeOf, fingerprintOf } from './error-event.js';
+import { toError, errorCodeOf, fingerprintOf } from './internal/error-fields.js';
+import { userIdFromContext } from './internal/context.js';
 
 /** Structurally typed so the kit stays dependency-light - no express import. */
 export interface ErrorRequest {
@@ -18,7 +18,10 @@ export interface ErrorResponse {
 }
 
 export interface ErrorMiddlewareOptions {
-  /** Where the user id lives on your request; defaults to `req.user.id`. */
+  /**
+   * Where the user id lives on your request. Only consulted when the handler
+   * never called `setUser`; defaults to `req.user.id`.
+   */
   userId?: (req: ErrorRequest) => string | undefined;
 }
 
@@ -53,7 +56,6 @@ export function errorMiddleware(
   log: Logger,
   options: ErrorMiddlewareOptions = {}
 ): ExpressErrorHandler {
-  const userId = options.userId ?? defaultUserId;
   return (err, req, res, next) => {
     const status = statusOf(err);
     log.error({
@@ -61,7 +63,7 @@ export function errorMiddleware(
       route: routeOf(req),
       method: req.method,
       status,
-      user_id: userId(req),
+      user_id: options.userId ? options.userId(req) : (userIdFromContext() ?? defaultUserId(req)),
       error_code: errorCodeOf(err),
       fingerprint: fingerprintOf(err),
       source: 'server',
@@ -100,6 +102,7 @@ export function onRequestError(log: Logger): NextRequestErrorHandler {
       route: context?.routePath || request?.path,
       method: request?.method,
       status: 500,
+      user_id: userIdFromContext(),
       error_code: errorCodeOf(err),
       fingerprint: fingerprintOf(err),
       source: 'server',
