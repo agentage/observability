@@ -20,6 +20,14 @@ This guards a real incident: on 2026-08-10 a Node API in this module 500'd every
 
 The README describes **shapes** (wide event, ErrorEvent, health envelope) and **env vars** - the contract consumers depend on. It is not an API reference. A change that would require a new function row in an API table is the wrong change: it means the surface grew.
 
+## Dependencies stay thin
+
+A consumer installs 41 packages, not 106. `@opentelemetry/api` is a **peer** (global
+singleton - two copies put spans on the wrong provider), and the datastore/queue
+instrumentations (`pg`, `mongodb`, `redis`, `amqplib`) are **optional peers** loaded through
+a guarded `await import()`: missing means skipped at debug level, never a failed boot. Adding
+a hard dependency needs the same justification as adding a public export.
+
 ## Release
 
 Version bump on `master` -> `release.yml` publishes to npm (a version already published is a skip). `train.yml` cuts the bump every Friday, minor by default, `major` only on manual dispatch. Never `npm publish` from a terminal.

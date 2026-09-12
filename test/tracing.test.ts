@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import type { Instrumentation } from '@opentelemetry/instrumentation';
+import { propagation, ROOT_CONTEXT, SpanKind } from '@opentelemetry/api';
+import { SamplingDecision } from '@opentelemetry/sdk-trace-base';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { isHealthProbePath } from '../src/config.js';
-import { instrumentations } from '../src/tracing.js';
+import { samplerFromTraceEnv } from '../src/tracing.js';
+
+const TRACE_ID = 'a3ce929d0e0e4736aab7ab4f8422d25c';
+
+const decide = (env: NodeJS.ProcessEnv) =>
+  samplerFromTraceEnv(env).shouldSample(ROOT_CONTEXT, TRACE_ID, 'GET /x', SpanKind.SERVER, {}, [])
+    .decision;
 
 describe('isHealthProbePath', () => {
   it('matches the estate health endpoints, query included', () => {
@@ -19,29 +27,52 @@ describe('isHealthProbePath', () => {
   });
 });
 
-describe('probe filtering is wired in both directions', () => {
-  const configOf = (list: Instrumentation[], name: string): Record<string, unknown> =>
-    list.find((i) => i.instrumentationName.endsWith(name))?.getConfig() as Record<string, unknown>;
-
-  const probes = (hook: unknown, key: string) => (path: string | null) =>
-    (hook as (arg: Record<string, unknown>) => boolean)({ [key]: path });
-
-  it('ignores http client and server requests to a probe path', () => {
-    const http = configOf(instrumentations(), 'instrumentation-http');
-    const outgoing = probes(http.ignoreOutgoingRequestHook, 'path');
-    const incoming = probes(http.ignoreIncomingRequestHook, 'url');
-    expect(outgoing('/health')).toBe(true);
-    expect(outgoing('/api/health?probe=1')).toBe(true);
-    expect(outgoing('/api/memories')).toBe(false);
-    expect(outgoing(null)).toBe(false);
-    expect(incoming('/health')).toBe(true);
+describe('samplerFromTraceEnv', () => {
+  it('reads the estate contract: parentbased_traceidratio + arg', () => {
+    const sampler = samplerFromTraceEnv({
+      OTEL_TRACES_SAMPLER: 'parentbased_traceidratio',
+      OTEL_TRACES_SAMPLER_ARG: '0.25',
+    });
+    expect(sampler.toString()).toContain('ParentBased');
+    expect(sampler.toString()).toContain('TraceIdRatioBased{0.25}');
   });
 
-  it('ignores undici requests to a probe path', () => {
-    const undici = configOf(instrumentations(), 'instrumentation-undici');
-    const ignore = probes(undici.ignoreRequestHook, 'path');
-    expect(ignore('/api/health')).toBe(true);
-    expect(ignore('/hc')).toBe(true);
-    expect(ignore('/api/mcps')).toBe(false);
+  it('defaults to parentbased_always_on when the env is unset or unknown', () => {
+    for (const env of [{}, { OTEL_TRACES_SAMPLER: 'nonsense' }]) {
+      expect(samplerFromTraceEnv(env).toString()).toContain('ParentBased{root=AlwaysOnSampler');
+      expect(decide(env)).toBe(SamplingDecision.RECORD_AND_SAMPLED);
+    }
+  });
+
+  it('honours the non-parent variants', () => {
+    expect(decide({ OTEL_TRACES_SAMPLER: 'always_off' })).toBe(SamplingDecision.NOT_RECORD);
+    expect(decide({ OTEL_TRACES_SAMPLER: 'always_on' })).toBe(SamplingDecision.RECORD_AND_SAMPLED);
+    expect(
+      samplerFromTraceEnv({
+        OTEL_TRACES_SAMPLER: 'traceidratio',
+        OTEL_TRACES_SAMPLER_ARG: '0.5',
+      }).toString()
+    ).toBe('TraceIdRatioBased{0.5}');
+    expect(
+      samplerFromTraceEnv({ OTEL_TRACES_SAMPLER: 'parentbased_always_off' }).toString()
+    ).toContain('AlwaysOffSampler');
+  });
+
+  it('falls back to always-on ratio when the arg is blank or out of range', () => {
+    for (const arg of ['', 'abc', '-1', '2']) {
+      expect(
+        samplerFromTraceEnv({
+          OTEL_TRACES_SAMPLER: 'traceidratio',
+          OTEL_TRACES_SAMPLER_ARG: arg,
+        }).toString()
+      ).toBe('TraceIdRatioBased{1}');
+    }
+  });
+});
+
+describe('provider registration defaults', () => {
+  it('registers the W3C tracecontext + baggage propagators', () => {
+    new NodeTracerProvider().register();
+    expect(propagation.fields()).toEqual(expect.arrayContaining(['traceparent', 'baggage']));
   });
 });

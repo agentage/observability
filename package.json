@@ -53,24 +53,24 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@opentelemetry/api": "1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
     "@opentelemetry/instrumentation": "^0.222.0",
-    "@opentelemetry/instrumentation-amqplib": "^0.69.0",
     "@opentelemetry/instrumentation-express": "^0.70.0",
     "@opentelemetry/instrumentation-http": "^0.222.0",
-    "@opentelemetry/instrumentation-mongodb": "^0.75.0",
-    "@opentelemetry/instrumentation-pg": "^0.74.0",
-    "@opentelemetry/instrumentation-redis": "^0.70.0",
     "@opentelemetry/instrumentation-undici": "^0.32.0",
     "@opentelemetry/resources": "2.11.0",
-    "@opentelemetry/sdk-node": "^0.222.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",
+    "@opentelemetry/sdk-trace-node": "^2.11.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "pino": "^10.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/instrumentation-amqplib": "^0.69.0",
+    "@opentelemetry/instrumentation-mongodb": "^0.75.0",
+    "@opentelemetry/instrumentation-pg": "^0.74.0",
+    "@opentelemetry/instrumentation-redis": "^0.70.0",
     "@types/node": "^26.2.0",
     "@typescript-eslint/eslint-plugin": "^8.46.4",
     "@typescript-eslint/parser": "^8.46.4",
@@ -84,9 +84,26 @@
     "vitest": "^5.0.0"
   },
   "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/instrumentation-amqplib": "^0.69.0",
+    "@opentelemetry/instrumentation-mongodb": "^0.75.0",
+    "@opentelemetry/instrumentation-pg": "^0.74.0",
+    "@opentelemetry/instrumentation-redis": "^0.70.0",
     "@vercel/otel": ">=2"
   },
   "peerDependenciesMeta": {
+    "@opentelemetry/instrumentation-amqplib": {
+      "optional": true
+    },
+    "@opentelemetry/instrumentation-mongodb": {
+      "optional": true
+    },
+    "@opentelemetry/instrumentation-pg": {
+      "optional": true
+    },
+    "@opentelemetry/instrumentation-redis": {
+      "optional": true
+    },
     "@vercel/otel": {
       "optional": true
     }

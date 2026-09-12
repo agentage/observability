@@ -9,5 +9,5 @@ const config = resolveTracingConfig(process.env);
 // startup cost, and must not fail to boot if the collector is unreachable.
 if (config) {
   const { startTracing } = await import('./tracing.js');
-  startTracing(config);
+  await startTracing(config);
 }
