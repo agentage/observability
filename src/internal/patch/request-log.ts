@@ -1,7 +1,6 @@
-import { context as otelContext } from '@opentelemetry/api';
 import type { Logger } from 'pino';
 import { CLIENT_TYPE_HEADER, classifyClientType, type UserType } from '../classify.js';
-import { contextWithUserType, enterUserScope, stampUserType } from '../context.js';
+import { contextWithUserType, enterUserScope, runInUserScope, stampUserType } from '../context.js';
 import { isHealthProbePath } from '../config.js';
 import { readableRoute, routeFromUrl } from '../span-names.js';
 
@@ -125,6 +124,13 @@ const matchedRouteOf = (req: RequestLogRequest, originalPath: string): string | 
   return dropTrailingSlash(readable === joined ? joined : routeFromUrl(originalPath));
 };
 
+/** Marks the kit's own request log so the express patch never mounts a second one. */
+export const KIT_REQUEST_LOG = Symbol.for('agentage.observability.requestLog');
+
+/** Whether a middleware is one of ours - the idempotency check the auto-wiring runs. */
+export const isKitRequestLog = (fn: unknown): boolean =>
+  typeof fn === 'function' && KIT_REQUEST_LOG in fn;
+
 /**
  * One structured line per finished request (method/path/route/status/duration) -
  * the estate log agent tails the container's streams, so no in-process shipping.
@@ -138,7 +144,7 @@ export function createRequestLog(
   const message = options.message ?? 'request';
   const skipHealthProbes = options.skipHealthProbes ?? true;
   const botIpRanges = options.botIpRanges ?? parseIpRanges(process.env.OTEL_BOT_IP_RANGES);
-  return (req, res, next) => {
+  const middleware: RequestLogMiddleware = (req, res, next) => {
     const start = process.hrtime.bigint();
     // Opened before the handlers run: `setUser` writes into this scope's slot,
     // which is read back at 'finish' - long after the context itself is gone.
@@ -177,9 +183,11 @@ export function createRequestLog(
       userType === undefined
         ? scope.context
         : contextWithUserType(userType as UserType, scope.context);
-    otelContext.with(withType, () => {
+    runInUserScope(withType, scope.slot, () => {
       if (userType !== undefined) stampUserType();
       next();
     });
   };
+  Object.defineProperty(middleware, KIT_REQUEST_LOG, { value: true });
+  return middleware;
 }

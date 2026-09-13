@@ -31,6 +31,13 @@ export interface ErrorMiddlewareOptions {
    * page. The envelope is answered either way.
    */
   captureBelow500?: boolean;
+  /**
+   * Answer 5xx with `Internal server error` instead of the thrown message, unless
+   * the error sets `expose: true`. Default `true`: a driver, git or fetch message
+   * is internal detail, and the `traceId` in the same envelope is the handle that
+   * ties the user's report to the full line. 4xx always keep their real message.
+   */
+  maskServerErrors?: boolean;
 }
 
 export type ExpressErrorHandler = (
@@ -65,6 +72,13 @@ const traceIdOf = (): string => {
   return ctx && isSpanContextValid(ctx) ? ctx.traceId : '';
 };
 
+/** What a masked 5xx answers; the real message stays on the logged line. */
+const MASKED_MESSAGE = 'Internal server error';
+
+/** Opt-in from the thrower: this 5xx message was written for the caller to read. */
+const isExposed = (err: unknown): boolean =>
+  (err as { expose?: unknown } | null | undefined)?.expose === true;
+
 /** Marks the kit's own handler so the express patch never appends a second one. */
 export const KIT_ERROR_MIDDLEWARE = Symbol.for('agentage.observability.errorMiddleware');
 
@@ -78,6 +92,7 @@ export function errorMiddleware(
   options: ErrorMiddlewareOptions = {}
 ): ExpressErrorHandler {
   const captureBelow500 = options.captureBelow500 ?? false;
+  const maskServerErrors = options.maskServerErrors ?? true;
   const handler: ExpressErrorHandler = (err, req, res, next) => {
     const status = statusOf(err);
     if (status >= 500 || captureBelow500) {
@@ -98,9 +113,11 @@ export function errorMiddleware(
     // The one id a user can read off a failed call and hand to support.
     if (traceId) res.setHeader?.('X-Trace-Id', traceId);
     const message = err instanceof Error ? err.message : String(err);
+    // Response-only: the line logged above keeps the full message and stack.
+    const masked = maskServerErrors && status >= 500 && !isExposed(err);
     res.status(status).json({
       success: false,
-      error: { code: settledErrorCode(err) ?? 'Error', message },
+      error: { code: settledErrorCode(err) ?? 'Error', message: masked ? MASKED_MESSAGE : message },
       traceId,
     });
   };

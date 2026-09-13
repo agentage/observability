@@ -47,10 +47,13 @@ always stderr (stdout is the JSON-RPC channel of a stdio MCP server). `span` is 
 comes from - the auto-instrumentation stays at one span per request - and is inert without a
 started SDK, so library code can call it unconditionally. `setUser` rides the OTel context onto the
 request log line, every error raised under it and the active span, inside a scope the kit opened
-(the request log, or `span()`). Zero-config `health()` is a valid **liveness** probe; add `checks`
-and the same factory is your **readiness** probe - `createHealthHandler` is the Express form,
-`healthResponse`/`healthEnvelope` the raw `Response`/object. Never put it behind auth, a redirect
-or a rate limiter. In the browser, `getTraceId()` from `/browser` (also
+(the request log, or `span()`) - and it works with tracing unconfigured too, so a no-collector
+deploy keeps its `user_id`. Zero-config `health()` is a valid **liveness** probe; add `checks` and
+the same factory is your **readiness** probe. Pick the form by runtime, not by age: `health()`
+returns a fetch-native handler (Next route handlers, Hono, Workers, Deno, Bun), **`createHealthHandler()`
+is the Express one** (`app.get('/health', createHealthHandler({ checks }))`) and neither is
+deprecated; `healthResponse`/`healthEnvelope` are the raw `Response`/object. Never put it behind
+auth, a redirect or a rate limiter. In the browser, `getTraceId()` from `/browser` (also
 `document.documentElement.dataset.obsTrace`) is the id an error screen shows a user for support.
 
 ## What you get automatically
@@ -109,8 +112,15 @@ trace id in the body and as the `X-Trace-Id` header; a 4xx answers it without em
 
 <!-- prettier-ignore -->
 ```jsonc
-{ "success": false, "error": { "code": "ENOTFOUND", "message": "fetch failed" }, "traceId": "a3ce..." }
+{ "success": false, "error": { "code": "ENOTFOUND", "message": "Internal server error" }, "traceId": "a3ce..." }
 ```
+
+**A 5xx answers `Internal server error`, never the thrown message** - a driver, git or fetch
+message is internal detail, and a browser is the wrong place to read it. The `code` is kept, the
+logged line above keeps the full message and stack, and `traceId` is the handle that ties the
+user's report to it. A 4xx keeps its real message (a client error is the client's to fix). Throw
+with `expose: true` for a 5xx message you wrote for the caller, pass `maskServerErrors: false` to
+opt a handler out, or set `OBS_MASK_5XX=off` for the auto-wired one.
 
 **The `/health` envelope**, the same shape from every service:
 
@@ -195,13 +205,15 @@ Standard `OTEL_*`, read by the tracer and the exporter:
 | `LOG_LEVEL`                          | pino level (default `info`).                                                         |
 | `COMMIT_SHA` / `BUILD_TIME`          | Image build args, surfaced as `version`/`commit`/`buildTime`.                        |
 
-`OBS_*` are the escape hatches, each taking the literal `off`. Wiring is idempotent either way: a
-service that mounts a piece by hand keeps its own.
+`OBS_*` are the escape hatches, each taking the literal `off`. Wiring is idempotent: the request
+log and the error middleware carry a marker symbol, so a service that mounts either by hand keeps
+its own and the auto-wiring skips that piece - one line, one handler, never two.
 
 | Variable                  | Off means                                                                 |
 | ------------------------- | ------------------------------------------------------------------------- |
 | `OBS_REQUEST_LOG`         | No request log line.                                                      |
 | `OBS_ERROR_MW`            | No error middleware, so errors reach Express's default handler.           |
+| `OBS_MASK_5XX`            | 5xx answer the thrown message instead of `Internal server error`.         |
 | `OBS_AUTO_HEALTH`         | No auto-mounted `/health` + `/api/health`.                                |
 | `OBS_COLLECTOR`           | No `/api/client-errors`, even with origins configured.                    |
 | `OBS_FETCH_PATCH`         | The global `fetch` is left alone (no call site or target on failures).    |
@@ -220,6 +232,21 @@ Still exported, still working - and every one of them is now automatic.
 - `wrapToolHandler`, `setMcpTool`, `markSpanError`, `setSpanAttributes` -> the MCP patch
 - `classifyClientType`, `CLIENT_TYPE_HEADER`, `USER_TYPE_FIELD`, `UserType` -> `user_type` on the request log
 - `onRequestError(log)` from the root -> the same name from `/next`, which is not deprecated
+
+## Testing a service that uses the kit
+
+`log` is a lazy Proxy over the real pino logger, so **`vi.spyOn(log, 'error')` silently no-ops** -
+the spy is defined on the proxy target while every read goes through the trap to the logger. Assert
+on the lines instead, by pointing a logger at your own destination:
+
+```ts
+const lines: Record<string, unknown>[] = [];
+const log = createLogger({
+  service: 'test',
+  destination: { write: (s) => lines.push(JSON.parse(s)) },
+});
+// or, for the singleton: vi.spyOn(process.stderr, 'write') and JSON.parse each chunk
+```
 
 ## Develop
 

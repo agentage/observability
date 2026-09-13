@@ -1,11 +1,5 @@
-import {
-  context as otelContext,
-  trace,
-  SpanStatusCode,
-  type Attributes,
-  type Span,
-} from '@opentelemetry/api';
-import { enterUserScope, stampUserId, stampUserType } from './internal/context.js';
+import { trace, SpanStatusCode, type Attributes, type Span } from '@opentelemetry/api';
+import { enterUserScope, runInUserScope, stampUserId, stampUserType } from './internal/context.js';
 
 /**
  * The intentional-instrumentation API: one call = a properly parented span with
@@ -30,7 +24,7 @@ export async function span<T>(
       // A scope of its own, so `setUser` inside the callback has somewhere to
       // write even when no request middleware opened one.
       const scope = enterUserScope();
-      return otelContext.with(scope.context, async () => {
+      return runInUserScope(scope.context, scope.slot, async () => {
         try {
           return await fn(started);
         } catch (err) {

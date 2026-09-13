@@ -68,6 +68,28 @@ describe('setUser on the request log line', () => {
     ).toBeUndefined();
   });
 
+  it('works with tracing unconfigured - no context manager was ever registered', async () => {
+    // Exactly a no-collector deploy: the SDK never starts, so the API keeps its
+    // noop context manager and only the kit's own ALS fallback carries the slot.
+    otelContext.disable();
+    const info = vi.fn();
+    let finish: () => void = () => {};
+    let handled: Promise<void> = Promise.resolve();
+    createRequestLog({ info } as unknown as Logger)(
+      { method: 'GET', path: '/api/memories' } as RequestLogRequest,
+      { statusCode: 200, on: (_e: 'finish', l: () => void) => (finish = l) },
+      () => {
+        handled = (async () => {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          setUser('user_1');
+        })();
+      }
+    );
+    await handled;
+    finish();
+    expect((info.mock.calls[0][0] as LogRecord).user_id).toBe('user_1');
+  });
+
   it('survives the await boundaries of a real handler', async () => {
     useAsyncContextManager();
     const info = vi.fn();
