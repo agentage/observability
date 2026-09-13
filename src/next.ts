@@ -11,6 +11,14 @@ export {
   type NextRequestErrorHandler,
 } from './internal/patch/error-emitters.js';
 
+// The client-error collector as an App Router route - three apps hand-rolled it.
+export {
+  collectorRoute,
+  type CollectorRateLimit,
+  type CollectorRouteHandler,
+  type CollectorRouteOptions,
+} from './internal/patch/collector-route.js';
+
 /**
  * Next.js entry: re-export from `instrumentation.ts` -
  * `export { register } from '@agentage/observability/next';`

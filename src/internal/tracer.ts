@@ -1,4 +1,4 @@
-import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
+import { diag, DiagLogLevel, type DiagLogger } from '@opentelemetry/api';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import {
@@ -35,12 +35,32 @@ const DIAG_LEVELS: Record<string, DiagLogLevel> = {
   all: DiagLogLevel.ALL,
 };
 
+// Not the SDK's console diag logger: its lower levels go through the console methods
+// Node routes to stdout - the JSON-RPC channel of a stdio MCP server. Every level here
+// goes to stderr. (The names cannot be spelled: test/contract/stdout-silence.test.ts
+// scans this source text, comments included.)
+const stderrDiag = (): DiagLogger => {
+  const write =
+    (level: string) =>
+    (message: string, ...args: unknown[]): void => {
+      const extra = args.length ? ` ${args.map((arg) => String(arg)).join(' ')}` : '';
+      process.stderr.write(`otel ${level}: ${message}${extra}\n`);
+    };
+  return {
+    verbose: write('verbose'),
+    debug: write('debug'),
+    info: write('info'),
+    warn: write('warn'),
+    error: write('error'),
+  };
+};
+
 // Off by default: exporter failures must never spam the log pipeline. Set
 // OTEL_LOG_LEVEL=debug on one service to debug a missing-trace report.
 function configureDiagnostics(level: string | undefined): void {
   const parsed = DIAG_LEVELS[(level ?? '').trim().toLowerCase()];
   if (parsed !== undefined && parsed !== DiagLogLevel.NONE) {
-    diag.setLogger(new DiagConsoleLogger(), parsed);
+    diag.setLogger(stderrDiag(), parsed);
   }
 }
 
@@ -112,9 +132,12 @@ export async function startTracing(config: TracingConfig): Promise<void> {
     instrumentations: await instrumentations(),
   });
 
-  console.log(
+  // stderr, never stdout: stdout is the JSON-RPC channel of a stdio MCP server, and
+  // a plain write avoids building the log singleton before the service loaded its env.
+  process.stderr.write(
     `otel: tracing enabled - service ${config.serviceName} -> ${config.endpoint}` +
-      (config.serviceVersion ? ` (version ${config.serviceVersion})` : '')
+      (config.serviceVersion ? ` (version ${config.serviceVersion})` : '') +
+      '\n'
   );
 
   registerShutdownFlush(provider);

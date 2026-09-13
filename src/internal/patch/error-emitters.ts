@@ -1,5 +1,6 @@
 import { trace, isSpanContextValid } from '@opentelemetry/api';
 import type { Logger } from 'pino';
+import { log as singleton } from '../../log.js';
 import { toError, errorCodeOf, fingerprintOf, settledErrorCode } from '../error-fields.js';
 import { userIdFromContext } from '../context.js';
 
@@ -144,20 +145,47 @@ export type NextRequestErrorHandler = (
   context: NextErrorContext
 ) => void;
 
+/** The two members the factory form needs; structural so a test double qualifies. */
+const isLoggerLike = (value: unknown): value is Logger =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as { error?: unknown }).error === 'function' &&
+  typeof (value as { child?: unknown }).child === 'function';
+
+const emitNextError = (
+  logger: Logger,
+  err: unknown,
+  request?: NextErrorRequest,
+  context?: NextErrorContext
+): void => {
+  logger.error({
+    err: toError(err),
+    route: context?.routePath || request?.path,
+    method: request?.method,
+    status: 500,
+    user_id: userIdFromContext(),
+    error_code: errorCodeOf(err),
+    fingerprint: fingerprintOf(err),
+    source: 'server',
+    router_kind: context?.routerKind,
+    route_type: context?.routeType,
+  });
+};
+
 /** Next `instrumentation.ts` hook - server render/route errors as the same `ErrorEvent`. */
-export function onRequestError(log: Logger): NextRequestErrorHandler {
-  return (err, request, context) => {
-    log.error({
-      err: toError(err),
-      route: context?.routePath || request?.path,
-      method: request?.method,
-      status: 500,
-      user_id: userIdFromContext(),
-      error_code: errorCodeOf(err),
-      fingerprint: fingerprintOf(err),
-      source: 'server',
-      router_kind: context?.routerKind,
-      route_type: context?.routeType,
-    });
-  };
+export function onRequestError(log: Logger): NextRequestErrorHandler;
+export function onRequestError(
+  err: unknown,
+  request: NextErrorRequest,
+  context: NextErrorContext
+): void;
+export function onRequestError(
+  ...args: [Logger] | [unknown, NextErrorRequest?, NextErrorContext?]
+): NextRequestErrorHandler | void {
+  const [first, request, context] = args;
+  // One arg and it quacks like pino: the deprecated factory form, bound to that logger.
+  if (args.length === 1 && isLoggerLike(first)) {
+    return (err, req, ctx) => emitNextError(first, err, req, ctx);
+  }
+  emitNextError(singleton, first, request, context);
 }

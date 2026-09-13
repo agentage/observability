@@ -25,7 +25,8 @@ copies in one tree put spans on the wrong provider.
 
 ## The API
 
-Four names over six entries - root, `/bootstrap`, `/next`, `/browser`, `/react`, `/health`.
+Four names over six entries - root, `/bootstrap`, `/next`, `/browser`, `/react`, `/health` - plus
+two mounts (`collectorRoute`, `serveHealth`) for the two runtimes the auto-wiring cannot patch.
 
 ```ts
 import { log, span, setUser, health } from '@agentage/observability';
@@ -55,6 +56,29 @@ is the Express one** (`app.get('/health', createHealthHandler({ checks }))`) and
 deprecated; `healthResponse`/`healthEnvelope` are the raw `Response`/object. Never put it behind
 auth, a redirect or a rate limiter. In the browser, `getTraceId()` from `/browser` (also
 `document.documentElement.dataset.obsTrace`) is the id an error screen shows a user for support.
+
+Two mounts the auto-wiring cannot reach, because there is no Express `listen()` to patch:
+
+```ts
+// app/api/client-errors/route.ts - the collector for <ErrorReporter /> on Next
+export const dynamic = 'force-dynamic';
+export const POST = collectorRoute(); // from '@agentage/observability/next'
+
+// a worker with no HTTP server of its own: a crawler, a queue consumer, a cron container
+const probe = serveHealth(3003, { db: () => client.db.command({ ping: 1 }) });
+process.once('SIGTERM', () => void probe.close());
+```
+
+`collectorRoute()` is the same guards the Express collector applies, as a fetch handler: POST only,
+same-origin by `Origin` against the forwarded host (plus any `OTEL_CLIENT_ERROR_ORIGINS`, or
+`Sec-Fetch-Site: same-origin` when the browser sends no `Origin`), 64KB and 20 events per request,
+60 requests a minute, `no-store` + `noindex` on every answer, `204` with an empty body on success -
+and never a `400`, because a malformed report is the reporter's problem, not the page's.
+`serveHealth(port, checks?, options?)` answers `GET`/`HEAD` on `/health` and `/api/health` with the
+same envelope as everything else, binds every interface (the container probe uses `127.0.0.1`, the
+console reaches it over the overlay), and returns `{ listening, server, close() }` - `listening`
+resolves with the bound port, so `serveHealth(0)` works in a test, and rejects on `EADDRINUSE`
+instead of killing the worker.
 
 ## What you get automatically
 
@@ -209,6 +233,13 @@ Standard `OTEL_*`, read by the tracer and the exporter:
 log and the error middleware carry a marker symbol, so a service that mounts either by hand keeps
 its own and the auto-wiring skips that piece - one line, one handler, never two.
 
+**The marker is only visible on the middleware itself.** The scan walks the app's own stack looking
+for that symbol, so it sees the kit middleware **mounted directly**; wrap it in your own closure -
+a `/health` skip, a conditional - and the symbol is hidden, the auto-wiring mounts a second one and
+every request is logged twice. Either hang the original off the wrapper as `.wrapped`
+(`Object.assign(mine, { wrapped: createRequestLog(log) })`, which the scan follows), or set
+`OBS_REQUEST_LOG=off` and own the line yourself.
+
 | Variable                  | Off means                                                                 |
 | ------------------------- | ------------------------------------------------------------------------- |
 | `OBS_REQUEST_LOG`         | No request log line.                                                      |
@@ -231,7 +262,19 @@ Still exported, still working - and every one of them is now automatic.
 - `collectorHandler(log, options)` -> mounted at `listen()` with `OTEL_CLIENT_ERROR_ORIGINS`
 - `wrapToolHandler`, `setMcpTool`, `markSpanError`, `setSpanAttributes` -> the MCP patch
 - `classifyClientType`, `CLIENT_TYPE_HEADER`, `USER_TYPE_FIELD`, `UserType` -> `user_type` on the request log
-- `onRequestError(log)` from the root -> the same name from `/next`, which is not deprecated
+- `onRequestError(log)` (either entry, the factory call) -> `onRequestError` from `/next` **as a value**
+
+`onRequestError` is dual-mode, so `instrumentation.ts` is now a bare re-export and the singleton
+does the logging:
+
+```ts
+export { register, onRequestError } from '@agentage/observability/next';
+```
+
+Called with one logger-like argument it still returns a bound handler (the deprecated factory
+form); called the way Next calls it (`err, request, context`) it _is_ the handler. Before 1.1 the
+bare re-export above type-checked, shipped, and silently swallowed every server render error -
+Next called the factory, got a function back, and threw it away.
 
 ## Testing a service that uses the kit
 
@@ -246,6 +289,27 @@ const log = createLogger({
   destination: { write: (s) => lines.push(JSON.parse(s)) },
 });
 // or, for the singleton: vi.spyOn(process.stderr, 'write') and JSON.parse each chunk
+```
+
+Two more that the estate settled on, for code that reaches the singleton through the kit rather
+than through an injected logger:
+
+```ts
+// 1. stubLog - the Proxy's `set` trap writes THROUGH to the real pino logger, so an
+//    assignment sticks where a spy does not. Restore it, or the stub leaks across files.
+const calls: unknown[][] = [];
+const real = log.error;
+log.error = ((...args: unknown[]) => calls.push(args)) as typeof log.error;
+afterEach(() => {
+  log.error = real;
+});
+
+// 2. the whole process: capture stderr and parse the JSON lines out of it. This is the
+//    only one that also proves nothing landed on stdout.
+vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+  for (const raw of String(chunk).split('\n')) if (raw) lines.push(JSON.parse(raw));
+  return true;
+});
 ```
 
 ## Develop

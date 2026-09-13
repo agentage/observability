@@ -2,9 +2,16 @@
 
 Shared observability kit for the agentage estate. Rules below are load-bearing; read before changing anything.
 
-## Surface is frozen at 9
+## Surface is frozen at 11
 
-v1.0 targets **9 public exports**: `log`, `span`, `setUser`, `health`, plus the `bootstrap`, `next`, `browser`, `react` and root entries. Every consumer learns those and nothing else. Adding a 10th needs explicit justification in the PR body - "a service needed it" is not one; wire it behind an existing export instead.
+v1.0 froze **9 public exports**: `log`, `span`, `setUser`, `health`, plus the `bootstrap`, `next`, `browser`, `react` and root entries. Every consumer learns those and nothing else. Adding one needs explicit justification in the PR body - "a service needed it" is not one; wire it behind an existing export instead.
+
+1.1 added two, and both cleared that bar the same way: **several repos had already hand-rolled the thing, divergently, because no runtime the kit patches was involved.**
+
+- `collectorRoute(opts?)` (`/next`) - dashboard, catalog-web and the web backend each wrote their own client-error endpoint, with three different origin rules, two different missing-`Origin` answers and rate limiting in exactly one of them. The bootstrap mounts the Express collector at `listen()`; a Next route handler has no `listen()` to patch, so the only alternatives were a shared export or a fourth divergent copy.
+- `serveHealth(port, checks?, opts?)` (root) - an 87-line `node:http` shim in catalog-crawler, missing `content-type`, `HEAD`, and any `EADDRINUSE` handling. A worker with no Express app is the one shape the `listen()` patch can never reach.
+
+The bar for a 12th is unchanged, and higher: it must be a runtime the auto-wiring provably cannot reach, with more than one consumer already having built it by hand.
 
 `react` is the one framework entry and stays a single component (`ErrorReporter`) over `browser`'s `observeBrowser`: React is an **optional peer**, `browser` itself stays framework-free.
 

@@ -140,7 +140,8 @@ describe('setUser on error events', () => {
     await span('render', async () => {
       setUser('user_1');
       await Promise.resolve();
-      onRequestError({ error } as unknown as Logger)(new Error('kaput'), {}, {});
+      // `child` too: that pair is what marks a lone argument as the logger form.
+      onRequestError({ error, child: vi.fn() } as unknown as Logger)(new Error('kaput'), {}, {});
     });
     expect((error.mock.calls[0][0] as LogRecord).user_id).toBe('user_1');
   });
