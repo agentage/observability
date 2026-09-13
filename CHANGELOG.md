@@ -1,6 +1,32 @@
 # Changelog
 
-## 1.0.0 (unreleased)
+## 1.1.0
+
+Follow-ups from migrating eight repos to 1.0.0.
+
+- **Nothing writes to stdout.** The tracer's ready banner went to `console.log` whenever an OTLP
+  endpoint was set, corrupting the JSON-RPC stream of a stdio MCP server; `server-memory` and `cli`
+  both shipped a `process.stdout.write` diversion around the bootstrap import to survive it. The
+  banner is a plain `process.stderr.write` now, the SDK's console diag logger (stdout at
+  `OTEL_LOG_LEVEL=info`/`debug`) is replaced with a stderr one, and a source-scan test plus a
+  spawned smoke keep the whole package off stdout.
+- **`onRequestError` is dual-mode.** `export { onRequestError } from '@agentage/observability/next'`
+  now works: called as Next calls it (`err, request, context`) it logs through the singleton; called
+  with one logger-like argument it still returns a bound handler. The bare re-export used to
+  type-check and swallow every server render error.
+- **New `collectorRoute(opts?)` from `/next`** - the client-error collector as an App Router `POST`
+  handler, the union of the guards dashboard, catalog-web and the web backend hand-rolled three
+  different ways: same-origin against the forwarded host, `Sec-Fetch-Site` fallback, 64KB / 20
+  events, 60 requests a minute, `no-store` + `noindex`, `204` on success.
+- **New `serveHealth(port, checks?, opts?)` from the root** - `/health` + `/api/health` over
+  `node:http` for a worker with no server of its own, replacing catalog-crawler's shim. Adds the
+  `content-type` and `HEAD` the shim lacked, and surfaces `EADDRINUSE` on `listening` instead of
+  crashing the worker.
+- **Request-log idempotency sees through a `.wrapped` hop.** The marker symbol is invisible when the
+  kit middleware is mounted inside a service's own closure, which logged every admin-api request
+  twice; hang the original off the wrapper as `.wrapped`, or use `OBS_REQUEST_LOG=off`.
+
+## 1.0.0
 
 - **The API is four names**: `log` (module singleton, service from `OTEL_SERVICE_NAME`, always
   stderr), `span` (renamed from `withSpan`), `setUser`, `health` - over six entries: root,

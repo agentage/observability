@@ -127,9 +127,14 @@ const matchedRouteOf = (req: RequestLogRequest, originalPath: string): string | 
 /** Marks the kit's own request log so the express patch never mounts a second one. */
 export const KIT_REQUEST_LOG = Symbol.for('agentage.observability.requestLog');
 
-/** Whether a middleware is one of ours - the idempotency check the auto-wiring runs. */
+/**
+ * Whether a middleware is one of ours - the idempotency check the auto-wiring runs.
+ * Follows a `.wrapped` chain, because a service that mounts the kit log inside its
+ * own closure (a /health skip) otherwise hides the marker and gets logged twice.
+ */
 export const isKitRequestLog = (fn: unknown): boolean =>
-  typeof fn === 'function' && KIT_REQUEST_LOG in fn;
+  typeof fn === 'function' &&
+  (KIT_REQUEST_LOG in fn || isKitRequestLog((fn as { wrapped?: unknown }).wrapped));
 
 /**
  * One structured line per finished request (method/path/route/status/duration) -

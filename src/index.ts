@@ -5,6 +5,9 @@ export { span } from './span.js';
 export { setUser } from './user.js';
 export { health } from './health.js';
 
+// The 10th name: `/health` for a worker with no HTTP server of its own.
+export { serveHealth, type HealthServer, type ServeHealthOptions } from './serve-health.js';
+
 // The shapes those lines travel in - the contract the estate reads.
 export type {
   ClientErrorEvent,

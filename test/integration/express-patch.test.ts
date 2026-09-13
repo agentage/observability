@@ -175,6 +175,29 @@ describe.each(majors)('auto-wiring on %s', (_name, factory, forwardsAsyncThrows)
     );
   });
 
+  it('sees the kit log through a wrapper that declares `.wrapped`', async () => {
+    await withApp(
+      factory,
+      (app) => {
+        const inner = createRequestLog(log);
+        // admin-api's shape: the kit log inside a /health-skip closure. Without the
+        // `.wrapped` hop the marker is invisible and every request is logged twice.
+        const skipHealth = Object.assign(
+          (req: { path: string }, res: unknown, next: () => void) =>
+            req.path === '/health'
+              ? next()
+              : (inner as unknown as (...args: unknown[]) => void)(req, res, next),
+          { wrapped: inner }
+        );
+        app.use(skipHealth as never);
+      },
+      async ({ url }) => {
+        await fetch(`${url}/nope`);
+        expect(linesOf('http')).toHaveLength(1);
+      }
+    );
+  });
+
   it('keeps the hand-mounted request log when OBS_REQUEST_LOG is off', async () => {
     vi.stubEnv('OBS_REQUEST_LOG', 'off');
     await withApp(
