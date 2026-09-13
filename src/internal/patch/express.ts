@@ -7,7 +7,7 @@ import { log } from '../../log.js';
 import { collectorHandler } from './collector.js';
 import { errorMiddleware, isKitErrorMiddleware } from './error-emitters.js';
 import { registerLoaderHook } from './loader-hook.js';
-import { createRequestLog } from './request-log.js';
+import { createRequestLog, isKitRequestLog } from './request-log.js';
 
 /** Structural shapes of the express internals this reads - no express import. */
 interface ExpressLayer {
@@ -111,6 +111,9 @@ const handles = (app: ExpressApp, method: string, path: string): boolean => {
 const hasKitErrorMiddleware = (app: ExpressApp): boolean =>
   (routerOf(app)?.stack ?? []).some((layer) => isKitErrorMiddleware(layer.handle));
 
+const hasKitRequestLog = (app: ExpressApp): boolean =>
+  (routerOf(app)?.stack ?? []).some((layer) => isKitRequestLog(layer.handle));
+
 /** `sendBeacon` posts text/plain, which no default body parser reads. */
 const textBody =
   (maxBytes: number) =>
@@ -142,7 +145,9 @@ const WIRED = Symbol.for('agentage.observability.express.wired');
  * the request log first (404s and rejections are requests too), the liveness
  * probes and the browser-error collector next, the error middleware last.
  * Each piece has an off switch, and a route the service registered itself always
- * wins. Idempotent: a second `listen()` on the same app changes nothing.
+ * wins. Idempotent: a second `listen()` on the same app changes nothing, and a
+ * request log or error handler the service mounted by hand is found by its marker
+ * symbol, so neither is ever mounted twice.
  */
 export function autoWire(app: ExpressApp, env: NodeJS.ProcessEnv = process.env): void {
   const host = app as unknown as Record<symbol, unknown>;
@@ -152,7 +157,7 @@ export function autoWire(app: ExpressApp, env: NodeJS.ProcessEnv = process.env):
   // Where the service's own stack ends; everything added past it is ours to move.
   const tail = routerOf(app)?.stack.length ?? 0;
 
-  if (!isOff(env.OBS_REQUEST_LOG)) app.use(createRequestLog(log));
+  if (!isOff(env.OBS_REQUEST_LOG) && !hasKitRequestLog(app)) app.use(createRequestLog(log));
 
   if (!isOff(env.OBS_AUTO_HEALTH)) {
     const handler = createHealthHandler();
@@ -180,7 +185,9 @@ export function autoWire(app: ExpressApp, env: NodeJS.ProcessEnv = process.env):
     stack.splice(frontIndex(stack), 0, ...added);
   }
 
-  if (!isOff(env.OBS_ERROR_MW) && !hasKitErrorMiddleware(app)) app.use(errorMiddleware(log));
+  if (!isOff(env.OBS_ERROR_MW) && !hasKitErrorMiddleware(app)) {
+    app.use(errorMiddleware(log, { maskServerErrors: !isOff(env.OBS_MASK_5XX) }));
+  }
 }
 
 const PATCHED = Symbol.for('agentage.observability.express.patched');

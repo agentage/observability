@@ -25,6 +25,17 @@
 - **Error envelope changed** to `{ success, error: { code, message }, traceId }` plus an
   `X-Trace-Id` response header, and a 4xx no longer emits an ErrorEvent by default
   (`captureBelow500: true` restores it).
+- **A 5xx answers `Internal server error`**, not the thrown message: an internal driver, git or
+  fetch message must not reach a browser. The `code` is kept, the logged line keeps the full
+  message and stack, and `traceId` is the user-facing handle. 4xx keep their real message. Opt out
+  per handler with `maskServerErrors: false`, per error with `expose: true`, per service with
+  `OBS_MASK_5XX=off`.
+- **The request log is idempotent too**: it carries a marker symbol, so the auto-wiring skips its
+  own mount when the service already mounted `createRequestLog` by hand - previously that combo
+  emitted two identical `kind:'http'` lines per request.
+- **`setUser` works with tracing unconfigured.** The user slot now also rides an
+  AsyncLocalStorage of its own, so a service with no OTLP endpoint - where the SDK never starts and
+  no context manager is ever registered - still gets `user_id` on its request log and error lines.
 - **`captureError(log, err)` is gone**: `log.error(err)` does it. The logger lifts `cause`,
   `frame`, `target`, `category` and `error_code` onto the line itself and records the exception on
   the active span. `tracedFetch` -> plain `fetch`. `createLogger` -> `log`. `withSpan` -> `span`.

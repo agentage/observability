@@ -18,7 +18,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function capture(): { lines: () => Record<string, unknown>[]; write: (msg: string) => void } {
+type LogRecord = Record<string, unknown>;
+
+function capture(): { lines: () => LogRecord[]; write: (msg: string) => void } {
   const raw: string[] = [];
   return {
     lines: () =>
@@ -176,8 +178,81 @@ describe('errorMiddleware', () => {
     expect(line.route).toBeUndefined();
     expect(response.body).toEqual({
       success: false,
-      error: { code: 'Error', message: 'plain failure' },
+      error: { code: 'Error', message: 'Internal server error' },
       traceId: '',
+    });
+  });
+});
+
+describe('5xx message masking', () => {
+  /** Answers one error and hands back both the envelope and the logged line. */
+  const answer = (
+    err: unknown,
+    options?: Parameters<typeof errorMiddleware>[1]
+  ): { body: { error: { code: string; message: string }; traceId: string }; line?: LogRecord } => {
+    const out = capture();
+    const response = res();
+    errorMiddleware(createLogger({ service: 'api', destination: out }), options)(
+      err,
+      { method: 'GET', path: '/api/memories' } as never,
+      response,
+      vi.fn()
+    );
+    return {
+      body: response.body as { error: { code: string; message: string }; traceId: string },
+      line: out.lines()[0],
+    };
+  };
+
+  it('masks a 500 message by default, keeping the code', () => {
+    const err = Object.assign(new Error('ECONNREFUSED 10.0.0.4:5432 supabase'), {
+      code: 'ECONNREFUSED',
+    });
+    expect(answer(err).body.error).toEqual({
+      code: 'ECONNREFUSED',
+      message: 'Internal server error',
+    });
+  });
+
+  it('masks a 503 too, and every other 5xx', () => {
+    expect(
+      answer(Object.assign(new Error('store wedged'), { status: 503 })).body.error.message
+    ).toBe('Internal server error');
+  });
+
+  it('leaves a 4xx message alone - a client error is the client to fix', () => {
+    const err = Object.assign(new Error('memory "notes/x.md" not found'), { status: 404 });
+    expect(answer(err).body.error.message).toBe('memory "notes/x.md" not found');
+  });
+
+  it('honours err.expose === true', () => {
+    const err = Object.assign(new Error('rate limit exceeded, retry in 30s'), { expose: true });
+    expect(answer(err).body.error.message).toBe('rate limit exceeded, retry in 30s');
+  });
+
+  it('opts out with maskServerErrors: false', () => {
+    expect(answer(new Error('raw detail'), { maskServerErrors: false }).body.error.message).toBe(
+      'raw detail'
+    );
+  });
+
+  it('keeps the FULL message and stack on the logged line', () => {
+    const { line } = answer(new Error('ECONNREFUSED 10.0.0.4:5432 supabase'));
+    const err = line?.err as { message: string; stack: string };
+    expect(err.message).toBe('ECONNREFUSED 10.0.0.4:5432 supabase');
+    expect(err.stack).toContain('ECONNREFUSED 10.0.0.4:5432 supabase');
+    expect(line?.msg).toBe('ECONNREFUSED 10.0.0.4:5432 supabase');
+  });
+
+  it('carries the trace id masked or not - it is the user-facing handle', () => {
+    vi.spyOn(trace, 'getActiveSpan').mockReturnValue(trace.wrapSpanContext(SPAN_CONTEXT));
+    expect(answer(new Error('boom')).body).toMatchObject({
+      error: { message: 'Internal server error' },
+      traceId: SPAN_CONTEXT.traceId,
+    });
+    expect(answer(new Error('boom'), { maskServerErrors: false }).body).toMatchObject({
+      error: { message: 'boom' },
+      traceId: SPAN_CONTEXT.traceId,
     });
   });
 });

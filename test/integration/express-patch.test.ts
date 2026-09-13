@@ -4,8 +4,10 @@ import type { AddressInfo } from 'node:net';
 import express, { type Express } from 'express';
 import express4 from 'express4';
 import { log } from '../../src/log.js';
+import { setUser } from '../../src/user.js';
 import { autoWire, patchExpressModule } from '../../src/internal/patch/express.js';
 import { errorMiddleware } from '../../src/internal/patch/error-emitters.js';
+import { createRequestLog } from '../../src/internal/patch/request-log.js';
 
 /**
  * The listen patch itself, applied to both majors: after this, `app.listen()`
@@ -120,13 +122,71 @@ describe.each(majors)('auto-wiring on %s', (_name, factory, forwardsAsyncThrows)
       expect(response.status).toBe(500);
       expect(await response.json()).toEqual({
         success: false,
-        error: { code: 'Error', message: 'kaboom' },
+        error: { code: 'Error', message: 'Internal server error' },
         traceId: '',
       });
       const errors = lines.filter((line) => line.source === 'server');
       expect(errors).toHaveLength(1);
       expect(errors[0]).toMatchObject({ route: '/boom', method: 'GET', status: 500 });
+      // Masking is response-only: the line keeps what actually failed.
+      expect((errors[0].err as { message: string }).message).toBe('kaboom');
     });
+  });
+
+  it('unmasks the 5xx message with OBS_MASK_5XX=off', async () => {
+    vi.stubEnv('OBS_MASK_5XX', 'off');
+    await withApp(factory, boom, async ({ url }) => {
+      expect(await (await fetch(`${url}/boom`)).json()).toEqual({
+        success: false,
+        error: { code: 'Error', message: 'kaboom' },
+        traceId: '',
+      });
+    });
+  });
+
+  it('records the user setUser declared, with no SDK started', async () => {
+    await withApp(
+      factory,
+      (app) => {
+        app.get('/me', async (_req, res) => {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          setUser('user_1');
+          res.json({ ok: true });
+        });
+      },
+      async ({ url }) => {
+        await fetch(`${url}/me`);
+        expect(linesOf('http')).toHaveLength(1);
+        expect(linesOf('http')[0]).toMatchObject({ path: '/me', user_id: 'user_1' });
+      }
+    );
+  });
+
+  it('does not mount a second request log over the app own one', async () => {
+    await withApp(
+      factory,
+      (app) => {
+        app.use(createRequestLog(log));
+      },
+      async ({ url }) => {
+        await fetch(`${url}/nope`);
+        expect(linesOf('http')).toHaveLength(1);
+      }
+    );
+  });
+
+  it('keeps the hand-mounted request log when OBS_REQUEST_LOG is off', async () => {
+    vi.stubEnv('OBS_REQUEST_LOG', 'off');
+    await withApp(
+      factory,
+      (app) => {
+        app.use(createRequestLog(log));
+      },
+      async ({ url }) => {
+        await fetch(`${url}/nope`);
+        expect(linesOf('http')).toHaveLength(1);
+      }
+    );
   });
 
   it('mounts liveness on /health and /api/health', async () => {

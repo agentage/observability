@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   context as otelContext,
   createContextKey,
@@ -57,8 +58,16 @@ export interface UserSlot {
 
 const USER_SLOT = createContextKey('@agentage/observability user');
 
+/**
+ * Second channel for the very same slot. An unconfigured service never starts the
+ * SDK, so nothing registers a ContextManager and `otelContext.with` is a noop -
+ * the slot on the context would never be found again and `setUser` would write
+ * nowhere. AsyncLocalStorage is always available and costs nothing to enter.
+ */
+const userStore = new AsyncLocalStorage<UserSlot>();
+
 export const userSlotOf = (ctx: Context = otelContext.active()): UserSlot | undefined =>
-  ctx.getValue(USER_SLOT) as UserSlot | undefined;
+  (ctx.getValue(USER_SLOT) as UserSlot | undefined) ?? userStore.getStore();
 
 /** The context's own slot when it has one, else a context carrying a fresh one. */
 export const enterUserScope = (
@@ -69,6 +78,10 @@ export const enterUserScope = (
   const slot: UserSlot = {};
   return { context: ctx.setValue(USER_SLOT, slot), slot };
 };
+
+/** Run `fn` with the scope active on both channels, so `setUser` lands either way. */
+export const runInUserScope = <T>(ctx: Context, slot: UserSlot, fn: () => T): T =>
+  otelContext.with(ctx, () => userStore.run(slot, fn));
 
 /** The user id `setUser` put on the active (or given) context, if any. */
 export const userIdFromContext = (ctx?: Context): string | undefined => userSlotOf(ctx)?.id;
