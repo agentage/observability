@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { healthResponse, type ChecksInput, type HealthSourceOptions } from './health.js';
 
 /** The two paths the estate probes: the container HEALTHCHECK and the edge-routed one. */
@@ -59,6 +59,9 @@ export function serveHealth(
     send(res, response, await response.text(), method === 'HEAD');
   };
 
+  // Resolved at call time, not import time: the root barrel must stay loadable on the
+  // Next edge runtime, where `node:http` is absent (instrumentation.ts is bundled there).
+  const { createServer } = process.getBuiltinModule('node:http');
   const server = createServer((req, res) => {
     // A throwing check must answer 500, not kill the worker it is reporting on.
     void handle(req, res).catch(() => {
